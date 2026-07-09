@@ -9,6 +9,7 @@ public final class SureFootingConfig {
     public static final ModConfigSpec.BooleanValue ENABLED;
     public static final ModConfigSpec.BooleanValue ROTATE_JUMP_VELOCITY;
     public static final ModConfigSpec.BooleanValue ROTATE_GROUND_VELOCITY;
+    public static final ModConfigSpec.DoubleValue JUMP_ROTATION_STRENGTH;
     public static final ModConfigSpec.DoubleValue GROUND_ROTATION_STRENGTH;
     public static final ModConfigSpec.IntValue CARRY_TIMEOUT_TICKS;
     public static final ModConfigSpec.DoubleValue EXIT_DISTANCE;
@@ -31,6 +32,13 @@ public final class SureFootingConfig {
                         "Your retained momentum otherwise stays fixed in world space each tick while the platform " +
                         "rotates under you, so every step drifts toward the trailing side.")
                 .define("rotate_ground_velocity", true);
+        JUMP_ROTATION_STRENGTH = builder
+                .comment("Multiplier on the airborne velocity rotation. 1.0 aligns your velocity to the frame at " +
+                        "each tick's end, which still trails the rotation slightly while the velocity is applied; " +
+                        "values above 1.0 add lead so cross-jumps stay accurate however fast the platform spins. " +
+                        "The default was tuned in-game (pure theory says 1.5; practice landed lower). " +
+                        "Only affects airborne movement.")
+                .defineInRange("jump_rotation_strength", 1.16, 0.5, 3.0);
         GROUND_ROTATION_STRENGTH = builder
                 .comment("Multiplier on the grounded velocity rotation. 1.0 rotates your momentum exactly with the " +
                         "frame; values above 1.0 over-rotate to also compensate the per-step lag (each step executes " +

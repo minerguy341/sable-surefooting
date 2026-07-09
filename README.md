@@ -24,10 +24,15 @@ Carry stops when you land, get tracked by another sub-level, enter water/lava, s
 | `enabled` | `true` | Toggle the fix |
 | `rotate_jump_velocity` | `true` | Rotate your airborne velocity with the sub-level's frame, so a jump aimed across a spinning platform lands where you aimed |
 | `rotate_ground_velocity` | `true` | Rotate your walking momentum with the frame too, cancelling most of the sideways (Coriolis-like) pull when moving on a fast spinner |
+| `jump_rotation_strength` | `1.16` | Multiplier on the airborne rotation; 1.0 aligns to the frame but trails it slightly while your velocity is applied, values above add lead so cross-jumps stay accurate at any constant spin rate (default tuned in-game) |
 | `ground_rotation_strength` | `2.25` | Multiplier on the grounded rotation; higher values also compensate per-step lag on fast spinners (tuned in-game — 2.2–2.3 walks straight), lower toward 1.0 if you curl into the spin |
 | `carry_timeout_ticks` | `60` | Max airborne ticks to stay in the contraption's frame |
 | `exit_distance_blocks` | `4.0` | Stop carrying once this far outside the sub-level's bounds |
 | `debug_logging` | `false` | Log carry transitions and per-jump landing offsets |
+
+## Known limits
+
+The velocity rotation compensates everything that scales linearly with spin rate; what remains is engine-side. Sable's entity collision resolves at most 8 substeps per tick for the local player, so once a platform's tangential speed at your position passes roughly **1 block/tick (~20 m/s)**, collision itself becomes unreliable — expect phantom horizontal pushes from fast-sweeping blocks and the occasional "snowplow" shove. No client-side companion mod can fix that layer.
 
 ## Building
 

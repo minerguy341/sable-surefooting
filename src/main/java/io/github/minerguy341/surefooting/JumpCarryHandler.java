@@ -155,9 +155,14 @@ public final class JumpCarryHandler {
         if (this.orientationAnchor == subLevel && rotate) {
             Quaterniond delta = orientation.mul(new Quaterniond(this.lastOrientation).invert(), new Quaterniond());
 
-            // Grounded, optionally over-rotate to also compensate the per-step lag: each step
-            // executes as a straight world-space line while the platform keeps turning mid-step.
-            final double strength = grounded ? SureFootingConfig.GROUND_ROTATION_STRENGTH.get() : 1.0;
+            // Scale the rotation angle to compensate phase lag. The velocity we align here is
+            // applied during the NEXT tick while the frame keeps rotating, so plain alignment
+            // (strength 1.0) trails the frame by half a tick on average; 1.5 leads it by exactly
+            // that much for a constant spin. Grounded movement needs more because fresh input is
+            // sampled at tick start and executes as a straight world-space line mid-turn.
+            final double strength = grounded
+                    ? SureFootingConfig.GROUND_ROTATION_STRENGTH.get()
+                    : SureFootingConfig.JUMP_ROTATION_STRENGTH.get();
             if (strength != 1.0) {
                 final AxisAngle4d axisAngle = new AxisAngle4d().set(delta);
                 axisAngle.angle *= strength;

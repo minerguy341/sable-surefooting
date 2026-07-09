@@ -7,6 +7,8 @@ issueTrackerURL = "https://github.com/minerguy341/sable-surefooting/issues"
 modId = "surefooting"
 version = "${mod_version}"
 displayName = "Sable: Sure Footing"
+logoFile = "logo.png"
+logoBlur = false
 description = '''Keeps you moving with a Sable contraption (Create: Aeronautics) while you jump, so you land where you took off — including on rotating platforms.'''
 authors = "minerguy341"
 
