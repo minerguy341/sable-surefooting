@@ -18,12 +18,18 @@ public final class SureFooting {
 
     public SureFooting(final ModContainer container) {
         container.registerConfig(ModConfig.Type.CLIENT, SureFootingConfig.SPEC);
+        container.registerConfig(ModConfig.Type.SERVER, SureFootingServerConfig.SPEC);
 
-        // The fix is entirely client-side: players are client-authoritative for movement, and the
-        // server adopts the client's tracking state from movement packets. On a dedicated server
-        // this mod is a no-op so it can safely sit in a shared modlist.
+        // Non-player entities are server-authoritative; this handler runs on the logical server
+        // (dedicated or integrated) and is what keeps items/mobs on fast contraptions.
+        NeoForge.EVENT_BUS.register(new EntityCarryHandler());
+
+        // The player and particle fixes are client-side: players are client-authoritative for
+        // movement (the server adopts the client's tracking state from movement packets), and
+        // particles only exist on the client.
         if (FMLEnvironment.dist.isClient()) {
             NeoForge.EVENT_BUS.register(new JumpCarryHandler());
+            NeoForge.EVENT_BUS.register(new ParticleAnchorHandler());
 
             // Enables the "Config" button on the Mods screen, using NeoForge's built-in
             // auto-generated configuration UI for our ModConfigSpec.

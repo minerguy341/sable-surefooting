@@ -6,5 +6,11 @@
   "surefooting.configuration.ground_rotation_strength": "Ground Rotation Strength",
   "surefooting.configuration.carry_timeout_ticks": "Carry Timeout (Ticks)",
   "surefooting.configuration.exit_distance_blocks": "Exit Distance (Blocks)",
-  "surefooting.configuration.debug_logging": "Debug Logging"
+  "surefooting.configuration.debug_logging": "Debug Logging",
+  "surefooting.configuration.anchor_particles": "Anchor Particles",
+  "surefooting.configuration.carry_entities": "Carry Entities",
+  "surefooting.configuration.entity_jump_rotation_strength": "Entity Jump Rotation Strength",
+  "surefooting.configuration.entity_ground_rotation_strength": "Entity Ground Rotation Strength",
+  "surefooting.configuration.rotate_entity_yaw": "Rotate Entity Yaw",
+  "surefooting.configuration.carry_blacklist": "Carry Blacklist"
 }

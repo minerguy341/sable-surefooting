@@ -13,6 +13,7 @@ public final class SureFootingConfig {
     public static final ModConfigSpec.DoubleValue GROUND_ROTATION_STRENGTH;
     public static final ModConfigSpec.IntValue CARRY_TIMEOUT_TICKS;
     public static final ModConfigSpec.DoubleValue EXIT_DISTANCE;
+    public static final ModConfigSpec.BooleanValue ANCHOR_PARTICLES;
     public static final ModConfigSpec.BooleanValue DEBUG_LOGGING;
 
     static {
@@ -54,6 +55,11 @@ public final class SureFootingConfig {
                 .comment("Stop moving with the sub-level once you are this many blocks outside its bounding box, " +
                         "so deliberately jumping off a contraption doesn't drag you along.")
                 .defineInRange("exit_distance_blocks", 4.0, 0.0, 64.0);
+        ANCHOR_PARTICLES = builder
+                .comment("Keep particles (smoke, flames, block breaking, ...) anchored to the sub-level they " +
+                        "spawned on for as long as they stay near it. Sable normally releases a particle once " +
+                        "it drifts half a block, flinging it tangentially on fast contraptions.")
+                .define("anchor_particles", true);
         DEBUG_LOGGING = builder
                 .comment("Log carry transitions and per-jump landing offsets for debugging.")
                 .define("debug_logging", false);

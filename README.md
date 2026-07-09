@@ -17,6 +17,16 @@ No mixins — it only uses Sable's public helper and duck interfaces, entirely c
 
 Carry stops when you land, get tracked by another sub-level, enter water/lava, start flying (creative or elytra), mount a vehicle, move more than a few blocks away from the contraption's bounds (configurable), or after a timeout.
 
+Since 1.2.0 the same treatment covers more than the player:
+
+| What | Side | How |
+| --- | --- | --- |
+| **You** (jumping, walking) | Client | Carry through jump arcs + frame-rotate velocity |
+| **Non-player entities** (item drops, XP orbs, mobs, boats…) | Server | Same carry state machine, plus tracking is seeded when an entity spawns over a contraption (dropped items pop upward and would otherwise never catch a fast deck). Projectiles are excluded — Sable already gives them launch velocity, and frame-locking would bend their flight. |
+| **Particles** (smoke, flames, block breaking…) | Client | Sable frame-locks particles but releases them after 0.5 blocks of drift with a one-shot linear velocity — rising smoke gets flung tangentially. We re-anchor tracked particles every tick while they stay near the contraption. |
+
+On a server without the mod, the player and particle fixes still work for clients that have it; the entity fix needs the mod on the server.
+
 ## Config (`config/surefooting-client.toml`)
 
 | Option | Default | Meaning |
@@ -28,7 +38,10 @@ Carry stops when you land, get tracked by another sub-level, enter water/lava, s
 | `ground_rotation_strength` | `2.25` | Multiplier on the grounded rotation; higher values also compensate per-step lag on fast spinners (tuned in-game — 2.2–2.3 walks straight), lower toward 1.0 if you curl into the spin |
 | `carry_timeout_ticks` | `60` | Max airborne ticks to stay in the contraption's frame |
 | `exit_distance_blocks` | `4.0` | Stop carrying once this far outside the sub-level's bounds |
+| `anchor_particles` | `true` | Keep particles anchored to the contraption they spawned on while they stay near it |
 | `debug_logging` | `false` | Log carry transitions and per-jump landing offsets |
+
+Server-side options live in `serverconfig/surefooting-server.toml` (per world): `carry_entities` (`true`), `rotate_entity_yaw` (`true` — mobs and armor stands turn with the deck instead of keeping a world-fixed heading), `entity_jump_rotation_strength` (`1.16`), `entity_ground_rotation_strength` (`2.25`), `carry_timeout_ticks` (`60`), `exit_distance_blocks` (`4.0`), and `carry_blacklist` (entity ids that should never be carried). Items dropped by someone riding a contraption are additionally seeded with the contraption's velocity at spawn so they land where they were dropped.
 
 ## Known limits
 

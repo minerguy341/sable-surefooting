@@ -9,10 +9,6 @@ import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.neoforge.client.event.ClientTickEvent;
-import org.joml.AxisAngle4d;
-import org.joml.Quaterniond;
-import org.joml.Quaterniondc;
-import org.joml.Vector3d;
 
 /**
  * Keeps the local player in a sub-level's reference frame through a jump/fall arc.
@@ -37,9 +33,8 @@ public final class JumpCarryHandler {
     /** Sub-level-local position when the carry started, for debug offset logging. */
     private Vec3 carryStartLocal;
 
-    /** Sub-level whose orientation was captured last tick, for rotating airborne velocity. */
-    private SubLevel orientationAnchor;
-    private final Quaterniond lastOrientation = new Quaterniond();
+    /** Last observed sub-level orientation, for rotating velocity with the frame. */
+    private final FrameRotation.Anchor orientationAnchor = new FrameRotation.Anchor();
 
     @SubscribeEvent
     public void onClientTick(final ClientTickEvent.Post event) {
@@ -142,42 +137,20 @@ public final class JumpCarryHandler {
      */
     private void rotateVelocityWithSubLevel(final LocalPlayer player, final SubLevel subLevel) {
         if (subLevel == null) {
-            this.orientationAnchor = null;
+            this.orientationAnchor.reset();
             return;
         }
 
-        final Quaterniondc orientation = subLevel.logicalPose().orientation();
         final boolean grounded = player.onGround();
         final boolean rotate = grounded
                 ? SureFootingConfig.ROTATE_GROUND_VELOCITY.get()
                 : SureFootingConfig.ROTATE_JUMP_VELOCITY.get();
+        final double strength = !rotate ? 0.0
+                : grounded
+                ? SureFootingConfig.GROUND_ROTATION_STRENGTH.get()
+                : SureFootingConfig.JUMP_ROTATION_STRENGTH.get();
 
-        if (this.orientationAnchor == subLevel && rotate) {
-            Quaterniond delta = orientation.mul(new Quaterniond(this.lastOrientation).invert(), new Quaterniond());
-
-            // Scale the rotation angle to compensate phase lag. The velocity we align here is
-            // applied during the NEXT tick while the frame keeps rotating, so plain alignment
-            // (strength 1.0) trails the frame by half a tick on average; 1.5 leads it by exactly
-            // that much for a constant spin. Grounded movement needs more because fresh input is
-            // sampled at tick start and executes as a straight world-space line mid-turn.
-            final double strength = grounded
-                    ? SureFootingConfig.GROUND_ROTATION_STRENGTH.get()
-                    : SureFootingConfig.JUMP_ROTATION_STRENGTH.get();
-            if (strength != 1.0) {
-                final AxisAngle4d axisAngle = new AxisAngle4d().set(delta);
-                axisAngle.angle *= strength;
-                delta = new Quaterniond(axisAngle);
-            }
-
-            final Vec3 movement = player.getDeltaMovement();
-            final Vector3d rotated = delta.transform(new Vector3d(movement.x, movement.y, movement.z));
-            // Grounded, keep the vertical component untouched so tilted sub-levels don't fight
-            // gravity and ground snapping.
-            player.setDeltaMovement(rotated.x, grounded ? movement.y : rotated.y, rotated.z);
-        }
-
-        this.orientationAnchor = subLevel;
-        this.lastOrientation.set(orientation);
+        FrameRotation.rotateWithFrame(this.orientationAnchor, player, subLevel, strength, grounded);
     }
 
     private boolean shouldStartCarry(final LocalPlayer player, final SubLevel subLevel) {
