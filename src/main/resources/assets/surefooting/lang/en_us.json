@@ -1,0 +1,9 @@
+{
+  "surefooting.configuration.enabled": "Enabled",
+  "surefooting.configuration.rotate_jump_velocity": "Rotate Jump Velocity",
+  "surefooting.configuration.rotate_ground_velocity": "Rotate Ground Velocity",
+  "surefooting.configuration.ground_rotation_strength": "Ground Rotation Strength",
+  "surefooting.configuration.carry_timeout_ticks": "Carry Timeout (Ticks)",
+  "surefooting.configuration.exit_distance_blocks": "Exit Distance (Blocks)",
+  "surefooting.configuration.debug_logging": "Debug Logging"
+}
