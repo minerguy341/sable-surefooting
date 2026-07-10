@@ -43,24 +43,35 @@ final class FrameRotation {
                                 final double strength, final boolean preserveY, final boolean rotateYaw) {
         final Quaterniondc orientation = subLevel.logicalPose().orientation();
 
+        // A (near-)identity delta means the frame didn't rotate this tick: there is nothing to
+        // rotate, and converting an identity quaternion to axis-angle for the strength scaling
+        // divides by zero, poisoning the velocity with NaN. (This is how simply standing on a
+        // STATIC contraption froze the player and crashed the client.) |w| within ~1e-10 of 1
+        // corresponds to a rotation below ~2e-5 rad/tick — far below any visible motion.
         if (anchor.subLevel == subLevel) {
-            final Quaterniond delta = orientation.mul(new Quaterniond(anchor.lastOrientation).invert(), new Quaterniond());
+            final Quaterniond delta = orientation.mul(new Quaterniond(anchor.lastOrientation).invert(), new Quaterniond()).normalize();
 
-            if (rotateYaw) {
-                rotateEntityYaw(entity, delta);
-            }
-
-            if (strength != 0.0) {
-                Quaterniond scaled = delta;
-                if (strength != 1.0) {
-                    final AxisAngle4d axisAngle = new AxisAngle4d().set(delta);
-                    axisAngle.angle *= strength;
-                    scaled = new Quaterniond(axisAngle);
+            if (Math.abs(delta.w) < 1.0 - 1.0e-10) {
+                if (rotateYaw) {
+                    rotateEntityYaw(entity, delta);
                 }
 
-                final Vec3 movement = entity.getDeltaMovement();
-                final Vector3d rotated = scaled.transform(new Vector3d(movement.x, movement.y, movement.z));
-                entity.setDeltaMovement(rotated.x, preserveY ? movement.y : rotated.y, rotated.z);
+                if (strength != 0.0) {
+                    Quaterniond scaled = delta;
+                    if (strength != 1.0) {
+                        final AxisAngle4d axisAngle = new AxisAngle4d().set(delta);
+                        axisAngle.angle *= strength;
+                        scaled = new Quaterniond(axisAngle);
+                    }
+
+                    final Vec3 movement = entity.getDeltaMovement();
+                    final Vector3d rotated = scaled.transform(new Vector3d(movement.x, movement.y, movement.z));
+
+                    // Never let a degenerate transform write non-finite velocity onto the entity.
+                    if (rotated.isFinite()) {
+                        entity.setDeltaMovement(rotated.x, preserveY ? movement.y : rotated.y, rotated.z);
+                    }
+                }
             }
         }
 
