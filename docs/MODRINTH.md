@@ -17,6 +17,10 @@
 - **Links:** Source → `https://github.com/minerguy341/sable-surefooting` · Issues → `https://github.com/minerguy341/sable-surefooting/issues`
 - **Dependencies:** [Sable](https://modrinth.com/mod/sable) — Required. (Create / Create: Aeronautics are *not* dependencies — anything that moves a Sable sub-level benefits.)
 
+## Changelogs
+
+Per-version changelog text lives in [CHANGELOG.md](../CHANGELOG.md) — paste the matching section into each Modrinth version's changelog field (Modrinth renders the same markdown).
+
 ## First version upload
 
 - File: `build/libs/sable-surefooting-1.0.0.jar`
