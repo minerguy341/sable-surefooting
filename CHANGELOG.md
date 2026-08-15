@@ -2,6 +2,14 @@
 
 Each section is paste-ready for the matching Modrinth version's changelog field.
 
+## 1.2.2 — 2026-08-15
+
+**Critical fix — update from 1.2.0/1.2.1.** Fixes [#1](https://github.com/minerguy341/sable-surefooting/issues/1).
+
+- Fixed dropping an item while standing on a **moving contraption** launching it through the deck or far off into the world, stalling the server for tens of seconds per tick, and spamming `Enormous local sub-level collision bounds, quitting.` into the log. The spawn seed added in 1.2.0 asked Sable for the contraption's velocity at a **world** position, where a sub-level-local one is required — so the tangential term scaled with the distance to the world origin instead of the item's radius on the deck, inflating the seeded velocity by orders of magnitude. Worst on levitating/drag-tuned rigs, which always carry a little angular velocity; harmless on parked ones, which is why it hid for two releases.
+- Dropped items no longer slide off the deck after landing: the spawn seed is world-space, so once Sable takes the item into the contraption's frame it is now taken back off instead of lingering as drift relative to the deck.
+- The spawn seed is discarded outright if it comes back non-finite or above 4 blocks/tick, so a physics blow-up can no longer reach an entity's velocity and take the server tick down with it.
+
 ## 1.2.1 — 2026-07-10
 
 **Critical fix — update from 1.1.0/1.2.0.**

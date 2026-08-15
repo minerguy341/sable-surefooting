@@ -15,7 +15,9 @@ import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.neoforge.event.entity.EntityJoinLevelEvent;
 import net.neoforged.neoforge.event.tick.EntityTickEvent;
 
+import java.util.Collections;
 import java.util.Map;
+import java.util.Set;
 import java.util.WeakHashMap;
 
 /**
@@ -41,7 +43,24 @@ public final class EntityCarryHandler {
         final FrameRotation.Anchor orientationAnchor = new FrameRotation.Anchor();
     }
 
+    /**
+     * Highest spawn seed we will hand an entity, in blocks/tick. Sable's substep collision is
+     * already unreliable past ~1 block/tick, and a swept bounding box grows with the cube of the
+     * motion: an entity carrying a hundred blocks/tick of velocity makes
+     * {@code SubLevelEntityCollision} walk millions of block positions in a single tick, or skip
+     * collision entirely ("Enormous local sub-level collision bounds"). Above this we drop the
+     * seed rather than risk the tick — the item is left behind, which is wrong but survivable.
+     */
+    private static final double MAX_SEED_SPEED = 4.0;
+
     private final Map<Entity, CarryState> states = new WeakHashMap<>();
+
+    /**
+     * Items handed a spawn seed that have not yet been picked up by Sable's frame tracking.
+     * The seed is world-space, so it has to be taken back off at the handoff — see
+     * {@link #onEntityTick}.
+     */
+    private final Set<Entity> seeded = Collections.newSetFromMap(new WeakHashMap<>());
 
     @SubscribeEvent
     public void onEntityJoin(final EntityJoinLevelEvent event) {
@@ -56,9 +75,10 @@ public final class EntityCarryHandler {
         // none of the contraption's motion, so a fast deck races out from under them. Seed them with
         // the sub-level's point velocity — NOT with tracking: tracking an airborne item at spawn
         // flips Sable's networking/interpolation into the relative frame, which misplaces the item
-        // client-side. With plain velocity the item flies in the contraption's frame, stays globally
-        // networked, and Sable tracks it naturally on touchdown (the same path as items dropped onto
-        // the contraption from outside, which already behaves).
+        // client-side. With plain velocity the item flies in the contraption's frame and stays
+        // globally networked until Sable picks it up, which happens as soon as deck blocks are near
+        // its bounds — often on the first tick, not on touchdown. onEntityTick takes the seed back
+        // off at that handoff, so it is carry while the item is loose and nothing once it is tracked.
         final Entity owner = item.getOwner();
         if (owner == null) {
             return;
@@ -69,8 +89,37 @@ public final class EntityCarryHandler {
             return;
         }
 
-        final Vec3 pointVelocity = Sable.HELPER.getVelocity(item.level(), ownerSubLevel, item.position()).scale(1.0 / 20.0);
+        final Vec3 pointVelocity = pointVelocity(ownerSubLevel, item);
+        if (pointVelocity == null) {
+            return;
+        }
+
         item.setDeltaMovement(item.getDeltaMovement().add(pointVelocity));
+        this.seeded.add(item);
+    }
+
+    /**
+     * The sub-level's velocity at an entity's position, in blocks/tick, or null when the result is
+     * not safe to apply.
+     * <p>
+     * {@code Sable.HELPER.getVelocity} takes a <em>sub-level-local</em> position: it returns
+     * {@code angularVelocity × r + linearVelocity}, deriving {@code r} from the argument. Handing
+     * it a world position makes {@code r} the distance to the world origin instead of the radius
+     * on the deck, inflating the tangential term by orders of magnitude — the cause of issue #1,
+     * where items dropped on a levitating (never quite still, so never quite zero angular
+     * velocity) contraption were launched through the deck and stalled the server thread for
+     * tens of seconds inside collision. Every other sub-level-space call in this mod converts
+     * with {@code transformPositionInverse} first; so does this one.
+     */
+    private static Vec3 pointVelocity(final SubLevel subLevel, final Entity entity) {
+        final Vec3 local = subLevel.logicalPose().transformPositionInverse(entity.position());
+        final Vec3 velocity = Sable.HELPER.getVelocity(entity.level(), subLevel, local).scale(1.0 / 20.0);
+
+        if (!Double.isFinite(velocity.x) || !Double.isFinite(velocity.y) || !Double.isFinite(velocity.z)) {
+            return null; // a physics blow-up must never reach an entity's delta movement
+        }
+
+        return velocity.lengthSqr() > MAX_SEED_SPEED * MAX_SEED_SPEED ? null : velocity;
     }
 
     @SubscribeEvent
@@ -86,12 +135,26 @@ public final class EntityCarryHandler {
 
         if (!this.isConfigOn()) {
             this.states.remove(entity);
+            this.seeded.remove(entity);
             return;
         }
 
         CarryState state = this.states.get(entity);
         if (current == null && state == null) {
             return; // fast path: entity has nothing to do with sub-levels
+        }
+
+        // Sable has taken a seeded item into its frame: from here the tracking warp carries the
+        // item with the deck, so the world-space spawn seed is no longer carry — it is drift
+        // relative to the deck, and would slide the item off (an item's ground drag bleeds it off
+        // over ~2.4x its own length in blocks). Re-express the item in the sub-level's frame by
+        // taking the seed back off at the handoff.
+        if (current != null && this.seeded.remove(entity)) {
+            final Vec3 pointVelocity = pointVelocity(current, entity);
+
+            if (pointVelocity != null) {
+                entity.setDeltaMovement(entity.getDeltaMovement().subtract(pointVelocity));
+            }
         }
 
         if (state == null) {
