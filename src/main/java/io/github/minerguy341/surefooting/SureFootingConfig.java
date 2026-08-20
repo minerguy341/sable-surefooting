@@ -14,6 +14,7 @@ public final class SureFootingConfig {
     public static final ModConfigSpec.IntValue CARRY_TIMEOUT_TICKS;
     public static final ModConfigSpec.DoubleValue EXIT_DISTANCE;
     public static final ModConfigSpec.BooleanValue ANCHOR_PARTICLES;
+    public static final ModConfigSpec.DoubleValue PARTICLE_EXIT_DISTANCE;
     public static final ModConfigSpec.BooleanValue DEBUG_LOGGING;
 
     static {
@@ -60,6 +61,12 @@ public final class SureFootingConfig {
                         "spawned on for as long as they stay near it. Sable normally releases a particle once " +
                         "it drifts half a block, flinging it tangentially on fast contraptions.")
                 .define("anchor_particles", true);
+        PARTICLE_EXIT_DISTANCE = builder
+                .comment("Stop re-anchoring a particle once it is this many blocks outside the sub-level's " +
+                        "bounding box, after which Sable releases it normally. Separate from " +
+                        "exit_distance_blocks: that one is about when YOU stop being carried, and tuning it " +
+                        "down for a crisp jump-off would otherwise silently switch particle anchoring off.")
+                .defineInRange("particle_exit_distance_blocks", 4.0, 0.0, 64.0);
         DEBUG_LOGGING = builder
                 .comment("Log carry transitions and per-jump landing offsets for debugging.")
                 .define("debug_logging", false);

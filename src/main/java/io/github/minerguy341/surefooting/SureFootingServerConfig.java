@@ -31,8 +31,9 @@ public final class SureFootingServerConfig {
                         "would bend their trajectories).")
                 .define("carry_entities", true);
         ENTITY_JUMP_ROTATION_STRENGTH = builder
-                .comment("Multiplier on the airborne velocity rotation for carried entities. Mirrors the " +
-                        "client's jump_rotation_strength.")
+                .comment("Multiplier on the airborne velocity rotation for carried entities. Same default and " +
+                        "meaning as the client's jump_rotation_strength, but this one also accepts 0.0 to " +
+                        "switch the rotation off (the client has no such option and floors at 0.5).")
                 .defineInRange("entity_jump_rotation_strength", 1.16, 0.0, 3.0);
         ENTITY_GROUND_ROTATION_STRENGTH = builder
                 .comment("Multiplier on the grounded velocity rotation for carried entities (mobs walking on " +

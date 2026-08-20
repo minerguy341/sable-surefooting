@@ -8,6 +8,7 @@
   "surefooting.configuration.exit_distance_blocks": "Exit Distance (Blocks)",
   "surefooting.configuration.debug_logging": "Debug Logging",
   "surefooting.configuration.anchor_particles": "Anchor Particles",
+  "surefooting.configuration.particle_exit_distance_blocks": "Particle Exit Distance (Blocks)",
   "surefooting.configuration.carry_entities": "Carry Entities",
   "surefooting.configuration.entity_jump_rotation_strength": "Entity Jump Rotation Strength",
   "surefooting.configuration.entity_ground_rotation_strength": "Entity Ground Rotation Strength",

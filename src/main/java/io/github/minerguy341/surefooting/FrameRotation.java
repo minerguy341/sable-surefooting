@@ -65,7 +65,13 @@ final class FrameRotation {
                     }
 
                     final Vec3 movement = entity.getDeltaMovement();
-                    final Vector3d rotated = scaled.transform(new Vector3d(movement.x, movement.y, movement.z));
+                    // When the vertical component is going to be preserved anyway, leave it out of
+                    // the rotation entirely rather than rotating it and discarding the result: on a
+                    // frame turning about a HORIZONTAL axis, a rotated y bleeds into x/z, so a
+                    // player standing still on a pitching deck (dm ~ (0, -0.0784, 0) between ground
+                    // snaps) gets pushed sideways by gravity's own velocity.
+                    final Vector3d rotated = scaled.transform(
+                            new Vector3d(movement.x, preserveY ? 0.0 : movement.y, movement.z));
 
                     // Never let a degenerate transform write non-finite velocity onto the entity.
                     if (rotated.isFinite()) {

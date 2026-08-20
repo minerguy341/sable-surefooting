@@ -22,13 +22,17 @@ import net.neoforged.neoforge.client.event.ClientTickEvent;
  * This handler watches for the tracking -> untracked transition while airborne and simply re-sets
  * the tracking sub-level each tick until the player lands (or bails out), so Sable's own warp keeps
  * carrying them. Sable clears the field again at the end of each tick; re-setting it once per tick
- * is cheap and uses only Sable's public duck interfaces.
+ * is cheap. Note this rides on Sable's {@code mixinterface} duck interfaces, which are marked
+ * {@code @ApiStatus.Internal} — the dependency range is bounded accordingly.
  */
 public final class JumpCarryHandler {
 
     private SubLevel lastTracked;
     private SubLevel carrying;
     private int carryTicks;
+
+    /** The player this handler's state belongs to, so a respawn/dimension swap cannot inherit it. */
+    private LocalPlayer carriedPlayer;
 
     /** Sub-level-local position when the carry started, for debug offset logging. */
     private Vec3 carryStartLocal;
@@ -44,12 +48,32 @@ public final class JumpCarryHandler {
         if (player == null || minecraft.level == null) {
             this.lastTracked = null;
             this.stopCarry(player, "left world");
+            // Also release the anchor: it holds a ClientSubLevel, which holds its ClientLevel, so
+            // leaving a world while on a contraption would pin that whole level (chunks, entities,
+            // block entities) until the next world's first tick reset it.
+            this.orientationAnchor.reset();
+            this.carriedPlayer = null;
             return;
         }
+
+        // A LocalPlayer is replaced on death/respawn and on dimension change while level and player
+        // both stay non-null, so the checks above do not see it. Carrying state from the old player
+        // must not be applied to the new one — it would warp a freshly spawned player by the
+        // contraption's pose delta if they respawned inside its bounds.
+        if (this.carriedPlayer != null && this.carriedPlayer != player) {
+            this.lastTracked = null;
+            this.stopCarry(null, "player replaced");
+            this.orientationAnchor.reset();
+        }
+        this.carriedPlayer = player;
 
         if (!SureFootingConfig.SPEC.isLoaded() || !SureFootingConfig.ENABLED.get()) {
             this.lastTracked = null;
             this.stopCarry(player, "disabled");
+            // Without this the anchor keeps a live orientation across the gap, and the first tick
+            // after the config reloads applies the whole accumulated rotation as if it were one
+            // tick's worth — a visible sideways yank on a spinning deck.
+            this.orientationAnchor.reset();
             return;
         }
 
@@ -73,7 +97,7 @@ public final class JumpCarryHandler {
             }
         } else if (this.lastTracked != null && current == null && this.shouldStartCarry(player, this.lastTracked)) {
             this.carrying = this.lastTracked;
-            this.carryTicks = 0;
+            this.carryTicks = 1; // this tick is the first carried one
             this.carryStartLocal = this.carrying.logicalPose().transformPositionInverse(player.position());
 
             ((EntityMovementExtension) player).sable$setTrackingSubLevel(this.carrying);

@@ -13,6 +13,7 @@ import net.minecraft.world.entity.projectile.Projectile;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.neoforge.event.entity.EntityJoinLevelEvent;
+import net.neoforged.neoforge.event.level.LevelEvent;
 import net.neoforged.neoforge.event.tick.EntityTickEvent;
 
 import java.util.Collections;
@@ -53,6 +54,18 @@ public final class EntityCarryHandler {
      */
     private static final double MAX_SEED_SPEED = 4.0;
 
+    /**
+     * Absolute ceiling, in blocks/tick, on any point velocity we will write to an entity — in
+     * either direction. {@link #MAX_SEED_SPEED} is a policy about how much velocity we are willing
+     * to <em>hand</em> an entity and so belongs to the seeding site only; the handoff below has to
+     * subtract the real deck speed however fast the deck is, or it leaves the double-count it
+     * exists to remove. But "however fast" still needs a sane bound: a solver spike that produces a
+     * finite-but-absurd velocity would otherwise reach {@code deltaMovement} through the subtract
+     * path and stall the tick inside collision — the same cliff {@code MAX_SEED_SPEED} guards on
+     * the add path. Ten times the seed cap is far above any real contraption.
+     */
+    private static final double MAX_SANE_SPEED = MAX_SEED_SPEED * 10.0;
+
     private final Map<Entity, CarryState> states = new WeakHashMap<>();
 
     /**
@@ -66,7 +79,12 @@ public final class EntityCarryHandler {
     public void onEntityJoin(final EntityJoinLevelEvent event) {
         final Entity entity = event.getEntity();
 
-        if (event.getLevel().isClientSide || !this.isConfigOn()
+        // loadedFromDisk: only genuinely spawning items get a seed. A chunk load re-fires this
+        // event for every item already lying in it, and ItemEntity persists its thrower UUID
+        // (re-resolved lazily by getOwner), so a disk-loaded stack whose thrower happens to be
+        // riding a contraption would otherwise be seeded where it lies — see pointVelocity's note
+        // on why a bogus radius is dangerous.
+        if (event.getLevel().isClientSide || event.loadedFromDisk() || !this.isConfigOn()
                 || !(entity instanceof final ItemEntity item) || !this.isEligible(entity)) {
             return;
         }
@@ -86,6 +104,14 @@ public final class EntityCarryHandler {
 
         final SubLevel ownerSubLevel = Sable.HELPER.getTrackingSubLevel(owner);
         if (ownerSubLevel == null || ownerSubLevel.isRemoved() || ownerSubLevel.getLevel() != item.level()) {
+            return;
+        }
+
+        // The owner riding a contraption does not make THIS item's position meaningful on it. The
+        // point velocity is angularVelocity x r, with r taken from the item's own position, so an
+        // item far from the deck gets a radius that is really just its distance from the deck.
+        // Only seed items that are actually on (or just above) the contraption.
+        if (!withinBounds(item, ownerSubLevel)) {
             return;
         }
 
@@ -115,6 +141,13 @@ public final class EntityCarryHandler {
      * with {@code transformPositionInverse} first; so does this one.
      */
     private static Vec3 pointVelocity(final SubLevel subLevel, final Entity entity) {
+        // getVelocity casts the level to ServerLevel and reads the sub-level's physics body
+        // without checking it is still live, so establish that here rather than relying on the
+        // caller — every other sub-level use in this class makes the same two checks.
+        if (subLevel.isRemoved() || subLevel.getLevel() != entity.level()) {
+            return null;
+        }
+
         final Vec3 local = subLevel.logicalPose().transformPositionInverse(entity.position());
         final Vec3 velocity = Sable.HELPER.getVelocity(entity.level(), subLevel, local).scale(1.0 / 20.0);
 
@@ -122,14 +155,34 @@ public final class EntityCarryHandler {
             return null; // a physics blow-up must never reach an entity's delta movement
         }
 
-        return velocity;
+        return velocity.lengthSqr() > MAX_SANE_SPEED * MAX_SANE_SPEED ? null : velocity;
+    }
+
+    /** Whether the entity is inside the sub-level's world-space bounds, plus the exit margin. */
+    private static boolean withinBounds(final Entity entity, final SubLevel subLevel) {
+        final BoundingBox3dc bounds = subLevel.boundingBox();
+        final double margin = SureFootingServerConfig.EXIT_DISTANCE.get();
+        final Vec3 pos = entity.position();
+
+        return pos.x >= bounds.minX() - margin && pos.x <= bounds.maxX() + margin
+                && pos.y >= bounds.minY() - margin && pos.y <= bounds.maxY() + margin
+                && pos.z >= bounds.minZ() - margin && pos.z <= bounds.maxZ() + margin;
     }
 
     @SubscribeEvent
     public void onEntityTick(final EntityTickEvent.Post event) {
         final Entity entity = event.getEntity();
 
-        if (entity.level().isClientSide || !this.isEligible(entity)) {
+        if (entity.level().isClientSide) {
+            return;
+        }
+
+        // Eligibility can flip mid-carry (a blacklist edit, or the entity mounting something).
+        // Drop any state rather than returning past the cleanup: a stale entry would otherwise sit
+        // there with its carrying/carryTicks frozen and resume from it if eligibility came back.
+        if (!this.isEligible(entity)) {
+            this.states.remove(entity);
+            this.seeded.remove(entity);
             return;
         }
 
@@ -182,7 +235,7 @@ public final class EntityCarryHandler {
             }
         } else if (state.lastTracked != null && current == null && this.shouldStartCarry(entity, state.lastTracked)) {
             state.carrying = state.lastTracked;
-            state.carryTicks = 0;
+            state.carryTicks = 1; // this tick is the first carried one
             extension.sable$setTrackingSubLevel(state.carrying);
             current = state.carrying;
         }
@@ -205,6 +258,24 @@ public final class EntityCarryHandler {
 
         if (current == null && state.carrying == null) {
             this.states.remove(entity); // nothing left to remember
+        }
+    }
+
+    /**
+     * Drops all carry state when a level unloads.
+     * <p>
+     * {@link CarryState} holds {@link SubLevel}s, and a {@code SubLevel} holds its {@code Level},
+     * which holds every entity in it — including the very entity used as the weak key here. That
+     * cycle makes the key strongly reachable, so {@link WeakHashMap} can never expunge the entry
+     * and the whole unloaded level is retained. Clearing on unload breaks it. Clearing everything
+     * rather than filtering by level is deliberate: the state is per-tick and rebuilds itself
+     * immediately for any entity still being carried in a level that is staying.
+     */
+    @SubscribeEvent
+    public void onLevelUnload(final LevelEvent.Unload event) {
+        if (!event.getLevel().isClientSide()) {
+            this.states.clear();
+            this.seeded.clear();
         }
     }
 
@@ -246,12 +317,6 @@ public final class EntityCarryHandler {
             return false;
         }
 
-        final BoundingBox3dc bounds = subLevel.boundingBox();
-        final double margin = SureFootingServerConfig.EXIT_DISTANCE.get();
-        final Vec3 pos = entity.position();
-
-        return pos.x >= bounds.minX() - margin && pos.x <= bounds.maxX() + margin
-                && pos.y >= bounds.minY() - margin && pos.y <= bounds.maxY() + margin
-                && pos.z >= bounds.minZ() - margin && pos.z <= bounds.maxZ() + margin;
+        return withinBounds(entity, subLevel);
     }
 }

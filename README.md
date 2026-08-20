@@ -1,6 +1,6 @@
 # Sable: Sure Footing
 
-A tiny client-side NeoForge 1.21.1 mod for [Sable](https://github.com/ryanhcode/sable) (the physics engine behind Create: Aeronautics) that keeps you moving with a contraption while you jump, so you land where you took off — including on **rotating** platforms.
+A tiny NeoForge 1.21.1 mod for [Sable](https://github.com/ryanhcode/sable) (the physics engine behind Create: Aeronautics) that keeps you moving with a contraption while you jump, so you land where you took off — including on **rotating** platforms. The player and particle fixes are client-side; the entity fix is server-side, so a server wanting correct item drops on contraptions needs the mod too.
 
 ## The bug
 
@@ -13,7 +13,7 @@ Sable carries entities standing on a moving sub-level by warping them along with
 
 When you leave the ground while tracked, this mod simply keeps re-applying the tracking sub-level each tick until you land, so Sable's own (correct) warp keeps carrying you through the whole jump arc. It also rotates your airborne velocity with the sub-level's per-tick rotation delta — the warp carries your *position* with the rotating frame, but without this your jump *direction* stays fixed in world space and lags behind the platform's rotation. Together they give platform-frame ballistics: jumping on a spinning platform behaves like jumping on a stationary one.
 
-No mixins — it only uses Sable's public helper and duck interfaces, entirely client-side (the server adopts the client's tracking state from movement packets).
+No mixins — the player fix uses Sable's helper and duck interfaces and is entirely client-side (the server adopts the client's tracking state from movement packets). Note those duck interfaces are Sable-internal (`@ApiStatus.Internal`), which is why the Sable dependency range is pinned to 2.0.x rather than left open.
 
 Carry stops when you land, get tracked by another sub-level, enter water/lava, start flying (creative or elytra), mount a vehicle, move more than a few blocks away from the contraption's bounds (configurable), or after a timeout.
 
@@ -39,6 +39,7 @@ On a server without the mod, the player and particle fixes still work for client
 | `carry_timeout_ticks` | `60` | Max airborne ticks to stay in the contraption's frame |
 | `exit_distance_blocks` | `4.0` | Stop carrying once this far outside the sub-level's bounds |
 | `anchor_particles` | `true` | Keep particles anchored to the contraption they spawned on while they stay near it |
+| `particle_exit_distance_blocks` | `4.0` | Release distance for anchored particles (separate from `exit_distance_blocks`) |
 | `debug_logging` | `false` | Log carry transitions and per-jump landing offsets |
 
 Server-side options live in `serverconfig/surefooting-server.toml` (per world): `carry_entities` (`true`), `rotate_entity_yaw` (`true` — mobs and armor stands turn with the deck instead of keeping a world-fixed heading), `entity_jump_rotation_strength` (`1.16`), `entity_ground_rotation_strength` (`2.25`), `carry_timeout_ticks` (`60`), `exit_distance_blocks` (`4.0`), and `carry_blacklist` (entity ids that should never be carried). Items dropped by someone riding a contraption are additionally seeded with the contraption's velocity at spawn so they land where they were dropped; the seed is released again once Sable takes the item into the contraption's frame, and is skipped entirely above 4 blocks/tick, where Sable's collision can no longer resolve the motion anyway.
@@ -46,6 +47,8 @@ Server-side options live in `serverconfig/surefooting-server.toml` (per world): 
 ## Known limits
 
 The velocity rotation compensates everything that scales linearly with spin rate; what remains is engine-side. Sable's entity collision resolves at most 8 substeps per tick for the local player, so once a platform's tangential speed at your position passes roughly **1 block/tick (~20 m/s)**, collision itself becomes unreliable — expect phantom horizontal pushes from fast-sweeping blocks and the occasional "snowplow" shove. No client-side companion mod can fix that layer.
+
+`exit_distance_blocks` is measured from the contraption's *axis-aligned* bounding box, not its hull, so a long ship at 45° yaw releases you further out than the number suggests. It is also slightly wider for players than for entities: Sable reports a swept box (last tick ∪ this tick) client-side and an instantaneous one server-side, so with the same setting a player releases marginally later than an item does.
 
 ## Building
 

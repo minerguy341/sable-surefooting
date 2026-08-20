@@ -8,6 +8,7 @@ import dev.ryanhcode.sable.sublevel.SubLevel;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.particle.Particle;
 import net.minecraft.client.particle.ParticleEngine;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.neoforge.client.event.ClientTickEvent;
@@ -69,18 +70,26 @@ public final class ParticleAnchorHandler {
             return;
         }
 
-        final Vec3 center = particle.getBoundingBox().getCenter();
+        // Sable measures anchor drift against the particle's own position (Particle#x/y/z), not
+        // against its bounding box centre. Vanilla builds the box sitting ON that position
+        // (y == minY, see Particle#setPos), so anchoring the centre leaves a permanent bbHeight/2
+        // residual instead of resetting drift to zero — and for a particle scaled to a height of
+        // 1.0 or more that residual alone is the whole 0.5-block kick budget, so the refresh would
+        // trigger the very kick it exists to prevent. x/y/z are protected, but the box gives them
+        // back exactly.
+        final AABB box = particle.getBoundingBox();
+        final Vec3 pos = new Vec3((box.minX + box.maxX) / 2.0, box.minY, (box.minZ + box.maxZ) / 2.0);
         final BoundingBox3dc bounds = subLevel.boundingBox();
-        final double margin = SureFootingConfig.EXIT_DISTANCE.get();
+        final double margin = SureFootingConfig.PARTICLE_EXIT_DISTANCE.get();
 
-        final boolean within = center.x >= bounds.minX() - margin && center.x <= bounds.maxX() + margin
-                && center.y >= bounds.minY() - margin && center.y <= bounds.maxY() + margin
-                && center.z >= bounds.minZ() - margin && center.z <= bounds.maxZ() + margin;
+        final boolean within = pos.x >= bounds.minX() - margin && pos.x <= bounds.maxX() + margin
+                && pos.y >= bounds.minY() - margin && pos.y <= bounds.maxY() + margin
+                && pos.z >= bounds.minZ() - margin && pos.z <= bounds.maxZ() + margin;
 
         if (within) {
             // Refresh the anchor to the particle's current local position so Sable's 0.5-block
             // drift kick never fires while the particle stays with the contraption.
-            extension.sable$setTrackingSubLevel(clientSubLevel, subLevel.logicalPose().transformPositionInverse(center));
+            extension.sable$setTrackingSubLevel(clientSubLevel, subLevel.logicalPose().transformPositionInverse(pos));
         }
         // Outside the margin: leave the stale anchor in place — Sable's kick fires on its own.
     }
