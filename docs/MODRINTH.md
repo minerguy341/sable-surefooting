@@ -12,7 +12,7 @@
 ## Settings after creation
 
 - **License:** MIT
-- **Client-side:** Required · **Server-side:** Unsupported (the mod is fully client-side; it loads harmlessly on servers but does nothing there)
+- **Client-side:** Required · **Server-side:** Optional (the player and particle fixes are client-side and work on any server; the entity fix — item drops, mobs and XP orbs riding a contraption — is server-side and only runs when the server has the mod too)
 - **Categories:** Game Mechanics, Transportation, Utility
 - **Links:** Source → `https://github.com/minerguy341/sable-surefooting` · Issues → `https://github.com/minerguy341/sable-surefooting/issues`
 - **Dependencies:** [Sable](https://modrinth.com/mod/sable) — Required. (Create / Create: Aeronautics are *not* dependencies — anything that moves a Sable sub-level benefits.)
@@ -54,11 +54,12 @@ Sable carries entities standing on a contraption by warping them with it every t
 | `ground_rotation_strength` | `2.25` | How aggressively to compensate while walking; lower toward 1.0 if you curl into the spin |
 | `carry_timeout_ticks` | `60` | Max airborne ticks to stay in the contraption's frame |
 | `exit_distance_blocks` | `4.0` | Release distance when leaving the contraption |
+| `particle_exit_distance_blocks` | `4.0` | Release distance for anchored particles |
 | `debug_logging` | `false` | Per-tick telemetry for bug reports |
 
 ### Compatibility
 
-Requires Sable 2.0+ on NeoForge 1.21.1. Works with anything that moves Sable sub-levels, including Create: Aeronautics. Client-side only — you can join any server with it.
+Requires Sable 2.0.x on NeoForge 1.21.1. Works with anything that moves Sable sub-levels, including Create: Aeronautics. You can join any server with it: the player and particle fixes are client-side. Installing it on the server as well additionally fixes item drops, mobs and XP orbs on moving contraptions.
 
 ---
 

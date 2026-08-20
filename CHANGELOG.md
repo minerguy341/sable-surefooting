@@ -10,6 +10,16 @@ Each section is paste-ready for the matching Modrinth version's changelog field.
 - Dropped items no longer slide off the deck after landing: the spawn seed is world-space, so once Sable takes the item into the contraption's frame it is now taken back off instead of lingering as drift relative to the deck.
 - The spawn seed is discarded outright if it comes back non-finite or above 4 blocks/tick, so a physics blow-up can no longer reach an entity's velocity and take the server tick down with it.
 
+Found by a follow-up audit of the same code path, and fixed here too:
+
+- Fixed resting items launching themselves when a chunk loads. The spawn seed fired for items *restored from disk*, not just newly dropped ones — an item entity remembers who threw it, so a stack lying anywhere in the world would be seeded whenever its thrower happened to be riding a contraption. It is now applied only to items that are genuinely spawning **and** are actually on the contraption; being thrown by someone standing on a deck is not by itself a reason to treat an item hundreds of blocks away as part of it.
+- **Server owners:** the entity fixes from 1.2.0 onward need the mod installed **on the server**. The Modrinth page previously said the mod was client-side only, which was true up to 1.1.0 but not since.
+- Particles no longer get released early. The re-anchor was recorded at the particle's bounding-box centre while Sable measures drift from the particle's own position, leaving a permanent offset that ate into the drift budget — and for larger particles the refresh itself could trigger the release it was meant to prevent.
+- Particle anchoring has its own `particle_exit_distance_blocks` (`4.0`) instead of borrowing `exit_distance_blocks`. Turning the latter down for a crisp jump-off used to switch particle anchoring off silently.
+- Standing still on a pitching or rolling deck no longer produces a slow sideways push (gravity's own velocity was bleeding into the horizontal rotation).
+- Fixed a one-tick velocity snap after editing the config while stood on a spinning contraption, a stale carry surviving a death/respawn on a contraption, `carry_timeout_ticks` lasting one tick longer than set, and stale carry state left behind when an entity was blacklisted mid-carry.
+- The Sable and NeoForge dependency ranges are now bounded (`2.0.x`, `21.1.x`). The mod rides on Sable internals, so a future Sable release will now refuse to load cleanly instead of failing mid-tick.
+
 ## 1.2.1 — 2026-07-10
 
 **Critical fix — update from 1.1.0/1.2.0.**
