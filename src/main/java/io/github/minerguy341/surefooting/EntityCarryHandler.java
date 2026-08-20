@@ -90,7 +90,7 @@ public final class EntityCarryHandler {
         }
 
         final Vec3 pointVelocity = pointVelocity(ownerSubLevel, item);
-        if (pointVelocity == null) {
+        if (pointVelocity == null || pointVelocity.lengthSqr() > MAX_SEED_SPEED * MAX_SEED_SPEED) {
             return;
         }
 
@@ -99,8 +99,11 @@ public final class EntityCarryHandler {
     }
 
     /**
-     * The sub-level's velocity at an entity's position, in blocks/tick, or null when the result is
-     * not safe to apply.
+     * The sub-level's velocity at an entity's position, in blocks/tick, or null if the physics
+     * state is degenerate. The {@link #MAX_SEED_SPEED} cap is deliberately <em>not</em> applied
+     * here: it is a policy about how much velocity we are willing to hand an entity, so it belongs
+     * to the seeding call site. The handoff below subtracts velocity to cancel the tracking warp's
+     * double-count, and capping that would leave the double-count in place.
      * <p>
      * {@code Sable.HELPER.getVelocity} takes a <em>sub-level-local</em> position: it returns
      * {@code angularVelocity × r + linearVelocity}, deriving {@code r} from the argument. Handing
@@ -119,7 +122,7 @@ public final class EntityCarryHandler {
             return null; // a physics blow-up must never reach an entity's delta movement
         }
 
-        return velocity.lengthSqr() > MAX_SEED_SPEED * MAX_SEED_SPEED ? null : velocity;
+        return velocity;
     }
 
     @SubscribeEvent
@@ -149,11 +152,16 @@ public final class EntityCarryHandler {
         // relative to the deck, and would slide the item off (an item's ground drag bleeds it off
         // over ~2.4x its own length in blocks). Re-express the item in the sub-level's frame by
         // taking the seed back off at the handoff.
-        if (current != null && this.seeded.remove(entity)) {
+        if (current != null && this.seeded.contains(entity)) {
             final Vec3 pointVelocity = pointVelocity(current, entity);
 
+            // Only forget the seed once it has actually come back off. Consuming the record on a
+            // failed conversion would leave the item double-counting the deck's motion for the
+            // rest of its life — the exact drift this handoff exists to remove — with no second
+            // chance. A degenerate physics tick is transient, so retry on the next one.
             if (pointVelocity != null) {
                 entity.setDeltaMovement(entity.getDeltaMovement().subtract(pointVelocity));
+                this.seeded.remove(entity);
             }
         }
 
