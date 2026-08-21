@@ -41,7 +41,9 @@ On a server without the mod, the player and particle fixes still work for client
 | `anchor_particles` | `true` | Keep particles anchored to the contraption they spawned on while they stay near it |
 | `debug_logging` | `false` | Log carry transitions and per-jump landing offsets |
 
-Server-side options live in `serverconfig/surefooting-server.toml` (per world): `carry_entities` (`true`), `rotate_entity_yaw` (`true` — mobs and armor stands turn with the deck instead of keeping a world-fixed heading), `entity_jump_rotation_strength` (`1.16`), `entity_ground_rotation_strength` (`2.25`), `carry_timeout_ticks` (`60`), `exit_distance_blocks` (`4.0`), and `carry_blacklist` (entity ids that should never be carried). Items dropped by someone riding a contraption are additionally seeded with the contraption's velocity at spawn so they land where they were dropped.
+Server-side options live in `serverconfig/surefooting-server.toml` (per world): `carry_entities` (`true`), `rotate_entity_yaw` (`true` — mobs and armor stands turn with the deck instead of keeping a world-fixed heading), `entity_jump_rotation_strength` (`1.16`), `entity_ground_rotation_strength` (`2.25`), `carry_timeout_ticks` (`60`), `exit_distance_blocks` (`4.0`, the default release distance), `exit_distance_overrides` (per-type distances like `["minecraft:item=16.0"]` so dropped items and XP ride much further than mobs), and `carry_blacklist` (entity ids that should never be carried). Dropped items are carried in the contraption's frame from the moment they leave your hand, so they land where you dropped them.
+
+Note that the player's own release distance is the **client** `exit_distance_blocks` — set it to `0.0` if you want to drop off the moment you step off an edge, independent of how far items are allowed to ride.
 
 ## Known limits
 

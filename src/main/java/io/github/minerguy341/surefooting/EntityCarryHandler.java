@@ -4,6 +4,8 @@ import dev.ryanhcode.sable.Sable;
 import dev.ryanhcode.sable.companion.math.BoundingBox3dc;
 import dev.ryanhcode.sable.mixinterface.entity.entity_sublevel_collision.EntityMovementExtension;
 import dev.ryanhcode.sable.sublevel.SubLevel;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.LivingEntity;
@@ -15,6 +17,8 @@ import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.neoforge.event.entity.EntityJoinLevelEvent;
 import net.neoforged.neoforge.event.tick.EntityTickEvent;
 
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.WeakHashMap;
 
@@ -43,6 +47,9 @@ public final class EntityCarryHandler {
 
     private final Map<Entity, CarryState> states = new WeakHashMap<>();
 
+    /** Items dropped over a contraption, awaiting first-tick tracking (see onEntityJoin). */
+    private final Map<Entity, SubLevel> pendingItemTrack = new WeakHashMap<>();
+
     @SubscribeEvent
     public void onEntityJoin(final EntityJoinLevelEvent event) {
         final Entity entity = event.getEntity();
@@ -53,12 +60,12 @@ public final class EntityCarryHandler {
         }
 
         // Items dropped by someone riding a contraption spawn with the dropper's throw velocity but
-        // none of the contraption's motion, so a fast deck races out from under them. Seed them with
-        // the sub-level's point velocity — NOT with tracking: tracking an airborne item at spawn
-        // flips Sable's networking/interpolation into the relative frame, which misplaces the item
-        // client-side. With plain velocity the item flies in the contraption's frame, stays globally
-        // networked, and Sable tracks it naturally on touchdown (the same path as items dropped onto
-        // the contraption from outside, which already behaves).
+        // none of the contraption's motion. A velocity seed can't hold an item on a spinning deck —
+        // it flies straight (tangent) while the deck curves away, so it always lags behind the
+        // rotation. Instead, track the item so Sable's warp carries it around the curve, like the
+        // player. Tracking must NOT be set here at spawn (that flips the item's add-packet into the
+        // relative frame and misplaces it client-side); we record it and engage tracking on its
+        // first tick, once the global spawn packet has gone out.
         final Entity owner = item.getOwner();
         if (owner == null) {
             return;
@@ -69,8 +76,35 @@ public final class EntityCarryHandler {
             return;
         }
 
-        final Vec3 pointVelocity = Sable.HELPER.getVelocity(item.level(), ownerSubLevel, item.position()).scale(1.0 / 20.0);
-        item.setDeltaMovement(item.getDeltaMovement().add(pointVelocity));
+        this.pendingItemTrack.put(item, ownerSubLevel);
+    }
+
+    @SubscribeEvent
+    public void onEntityTickPre(final EntityTickEvent.Pre event) {
+        final Entity entity = event.getEntity();
+
+        if (entity.level().isClientSide || !this.isConfigOn() || !this.isEligible(entity)) {
+            return;
+        }
+
+        // Engage deferred tracking for freshly dropped items (see onEntityJoin) BEFORE their first
+        // movement tick. By now the spawn packet has gone out in world coordinates (so networking
+        // isn't disturbed), and pinning the item to the sub-level here — while it still sits at the
+        // exact drop point — captures the correct local position. Engaging in Post instead would
+        // let the item drift one world-frame tick first, offsetting the landing by a full tick of
+        // platform rotation (invisible at low RPM, blocks of error at extreme speeds).
+        final SubLevel pending = this.pendingItemTrack.remove(entity);
+        if (pending == null || pending.isRemoved() || pending.getLevel() != entity.level()) {
+            return;
+        }
+
+        final EntityMovementExtension extension = (EntityMovementExtension) entity;
+        if (extension.sable$getTrackingSubLevel() == null && this.states.get(entity) == null) {
+            final CarryState state = new CarryState();
+            state.carrying = pending;
+            this.states.put(entity, state);
+            extension.sable$setTrackingSubLevel(pending);
+        }
     }
 
     @SubscribeEvent
@@ -90,6 +124,7 @@ public final class EntityCarryHandler {
         }
 
         CarryState state = this.states.get(entity);
+
         if (current == null && state == null) {
             return; // fast path: entity has nothing to do with sub-levels
         }
@@ -99,8 +134,15 @@ public final class EntityCarryHandler {
             this.states.put(entity, state);
         }
 
+        final boolean isItem = entity instanceof ItemEntity;
+
         if (state.carrying != null) {
-            if (current != null) {
+            // Non-living entities (items, XP) are not held by Sable's own tracking on a rotating
+            // deck — handing off (as we do for mobs, which Sable keeps) leaves them world-fixed
+            // while the platform turns under them, so they visibly drag against the spin. Keep
+            // re-asserting tracking every tick for items, on the ground included, until they leave
+            // the sub-level's bounds; only mobs hand back to Sable once they land.
+            if (!isItem && current != null) {
                 state.carrying = null; // Sable re-established tracking itself (landed)
             } else if (this.shouldStopCarry(entity, state)) {
                 state.carrying = null;
@@ -128,6 +170,19 @@ public final class EntityCarryHandler {
             FrameRotation.rotateWithFrame(state.orientationAnchor, entity, current, strength, grounded, rotateYaw);
         } else {
             state.orientationAnchor.reset();
+        }
+
+        // TEMP item-drag diagnostics — remove before release. Logs the item's LOCAL position (in
+        // the sub-level frame): constant = glued to the deck; drifting = warp not holding it.
+        if (entity instanceof final ItemEntity dbg && dbg.tickCount < 100) {
+            final SubLevel sl = current != null ? current : state.carrying;
+            final Vec3 localPos = sl != null ? sl.logicalPose().transformPositionInverse(entity.position()) : null;
+            SureFooting.LOGGER.info(String.format(
+                    "[drag dbg] t=%d track=%b carry=%b onGround=%b world=(%.3f,%.3f,%.3f) local=%s dm=(%.4f,%.4f,%.4f)",
+                    dbg.tickCount, current != null, state.carrying != null, entity.onGround(),
+                    entity.getX(), entity.getY(), entity.getZ(),
+                    localPos == null ? "n/a" : String.format("(%.3f,%.3f,%.3f)", localPos.x, localPos.y, localPos.z),
+                    entity.getDeltaMovement().x, entity.getDeltaMovement().y, entity.getDeltaMovement().z));
         }
 
         state.lastTracked = current;
@@ -160,9 +215,15 @@ public final class EntityCarryHandler {
     }
 
     private boolean shouldStopCarry(final Entity entity, final CarryState state) {
-        return entity.onGround()
-                || state.carryTicks >= SureFootingServerConfig.CARRY_TIMEOUT_TICKS.get()
-                || !this.canCarry(entity, state.carrying);
+        if (!this.canCarry(entity, state.carrying)) {
+            return true; // left the deck's bounds, entered water/lava, or the sub-level is gone
+        }
+        // Items ride the deck indefinitely while within bounds (they rest on it and must keep
+        // rotating with it); mobs hand back to Sable on landing and time out of the airborne carry.
+        if (entity instanceof ItemEntity) {
+            return false;
+        }
+        return entity.onGround() || state.carryTicks >= SureFootingServerConfig.CARRY_TIMEOUT_TICKS.get();
     }
 
     private boolean canCarry(final Entity entity, final SubLevel subLevel) {
@@ -176,11 +237,54 @@ public final class EntityCarryHandler {
         }
 
         final BoundingBox3dc bounds = subLevel.boundingBox();
-        final double margin = SureFootingServerConfig.EXIT_DISTANCE.get();
+        final double margin = this.exitDistanceFor(entity.getType());
         final Vec3 pos = entity.position();
 
         return pos.x >= bounds.minX() - margin && pos.x <= bounds.maxX() + margin
                 && pos.y >= bounds.minY() - margin && pos.y <= bounds.maxY() + margin
                 && pos.z >= bounds.minZ() - margin && pos.z <= bounds.maxZ() + margin;
+    }
+
+    /** Cache of parsed per-type exit distances, rebuilt when the config list reference changes. */
+    private List<? extends String> cachedOverrideList;
+    private Map<EntityType<?>, Double> exitDistanceOverrides = Map.of();
+
+    private double exitDistanceFor(final EntityType<?> type) {
+        if (!SureFootingServerConfig.SPEC.isLoaded()) {
+            return 4.0;
+        }
+
+        final List<? extends String> list = SureFootingServerConfig.EXIT_DISTANCE_OVERRIDES.get();
+        if (list != this.cachedOverrideList) {
+            this.cachedOverrideList = list;
+            this.exitDistanceOverrides = parseOverrides(list);
+        }
+
+        final Double override = this.exitDistanceOverrides.get(type);
+        return override != null ? override : SureFootingServerConfig.EXIT_DISTANCE.get();
+    }
+
+    private static Map<EntityType<?>, Double> parseOverrides(final List<? extends String> list) {
+        final Map<EntityType<?>, Double> map = new HashMap<>();
+        for (final String entry : list) {
+            final int eq = entry.lastIndexOf('=');
+            if (eq <= 0) {
+                continue;
+            }
+            final ResourceLocation id = ResourceLocation.tryParse(entry.substring(0, eq).trim());
+            if (id == null) {
+                continue;
+            }
+            final EntityType<?> type = BuiltInRegistries.ENTITY_TYPE.getOptional(id).orElse(null);
+            if (type == null) {
+                continue;
+            }
+            try {
+                map.put(type, Double.parseDouble(entry.substring(eq + 1).trim()));
+            } catch (final NumberFormatException ignored) {
+                // validated at config load; skip defensively
+            }
+        }
+        return map;
     }
 }

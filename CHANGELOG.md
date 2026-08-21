@@ -2,6 +2,12 @@
 
 Each section is paste-ready for the matching Modrinth version's changelog field.
 
+## 1.2.2 — 2026-07-11
+
+**Fix — update if you use moving/rotating contraptions.**
+
+- Fixed items dropped while riding a **rotating** contraption being flung off the map (the seeded velocity was computed from the wrong coordinate space, producing a plot-scale radius on spinners). Item drops now inherit the correct point velocity, and a sanity clamp prevents any absurd seed velocity.
+
 ## 1.2.1 — 2026-07-10
 
 **Critical fix — update from 1.1.0/1.2.0.**
