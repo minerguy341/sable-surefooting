@@ -20,6 +20,7 @@ public final class SureFootingServerConfig {
     public static final ModConfigSpec.DoubleValue EXIT_DISTANCE;
     public static final ModConfigSpec.ConfigValue<List<? extends String>> EXIT_DISTANCE_OVERRIDES;
     public static final ModConfigSpec.ConfigValue<List<? extends String>> CARRY_BLACKLIST;
+    public static final ModConfigSpec.BooleanValue DEBUG_LOGGING;
 
     static {
         final ModConfigSpec.Builder builder = new ModConfigSpec.Builder();
@@ -66,6 +67,13 @@ public final class SureFootingServerConfig {
         CARRY_BLACKLIST = builder
                 .comment("Entity type ids that should never be carried, e.g. [\"minecraft:boat\", \"examplemod:drone\"].")
                 .defineListAllowEmpty("carry_blacklist", List.of(), () -> "", o -> o instanceof String);
+        DEBUG_LOGGING = builder
+                .comment("Log carried entities' positions in the contraption's own reference frame, for " +
+                        "diagnosing drag. A local position that holds steady means the entity is glued to " +
+                        "the deck and anything you see moving is client-side rendering; one that drifts means " +
+                        "the carry is not holding it. One line per carried entity per tick while it settles, " +
+                        "so leave this off unless you are chasing something.")
+                .define("debug_logging", false);
 
         SPEC = builder.build();
     }

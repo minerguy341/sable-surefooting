@@ -43,8 +43,18 @@ public final class EntityCarryHandler {
         SubLevel lastTracked;
         SubLevel carrying;
         int carryTicks;
+        /** First local position seen while carried, so telemetry can report drift rather than absolutes. */
+        Vec3 debugStartLocal;
         final FrameRotation.Anchor orientationAnchor = new FrameRotation.Anchor();
     }
+
+    /**
+     * How long after an entity spawns {@code debug_logging} keeps reporting it. Long enough to cover
+     * a drop, its fall, the landing and a few seconds of settling — which is the window the question
+     * "does it drift while airborne?" lives in — and short enough that an item riding a deck
+     * indefinitely does not log forever.
+     */
+    private static final int DEBUG_TICKS = 120;
 
     /** Fallback exit distance for the window before the server config has loaded. */
     private static final double DEFAULT_EXIT_DISTANCE = 4.0;
@@ -198,11 +208,51 @@ public final class EntityCarryHandler {
             state.orientationAnchor.reset();
         }
 
+        if (SureFootingServerConfig.DEBUG_LOGGING.get() && entity.tickCount <= DEBUG_TICKS) {
+            logCarryTelemetry(entity, state, current);
+        }
+
         state.lastTracked = current;
 
         if (current == null && state.carrying == null) {
             this.states.remove(entity); // nothing left to remember
         }
+    }
+
+    /**
+     * Reports the entity's position in the sub-level's own frame, as an offset from where it was
+     * first seen there. That offset is the whole diagnostic: it is what "riding the deck" means, and
+     * it is independent of how fast the deck is moving through the world.
+     * <p>
+     * A steady offset means the carry is holding the entity exactly and anything visibly lagging is
+     * client-side rendering — the item's spawn packet goes out in world coordinates by design, so
+     * the client shows it in the world frame until it adopts Sable's. A growing offset means the
+     * carry itself is not holding, which would be ours to fix.
+     */
+    private static void logCarryTelemetry(final Entity entity, final CarryState state, final SubLevel current) {
+        final SubLevel frame = current != null ? current : state.carrying;
+
+        if (frame == null || frame.isRemoved() || frame.getLevel() != entity.level()) {
+            state.debugStartLocal = null;
+            return;
+        }
+
+        final Vec3 local = frame.logicalPose().transformPositionInverse(entity.position());
+        if (state.debugStartLocal == null) {
+            state.debugStartLocal = local;
+        }
+
+        final Vec3 drift = local.subtract(state.debugStartLocal);
+        final Vec3 movement = entity.getDeltaMovement();
+
+        SureFooting.LOGGER.info(String.format(
+                "[carry] %s t=%d tracked=%b carrying=%b onGround=%b local=(%.3f, %.3f, %.3f) "
+                        + "drift=(%.4f, %.4f, %.4f) |horiz|=%.4f dm=(%.4f, %.4f, %.4f)",
+                EntityType.getKey(entity.getType()), entity.tickCount,
+                current != null, state.carrying != null, entity.onGround(),
+                local.x, local.y, local.z,
+                drift.x, drift.y, drift.z, drift.horizontalDistance(),
+                movement.x, movement.y, movement.z));
     }
 
     /**

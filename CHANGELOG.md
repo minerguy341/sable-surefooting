@@ -19,6 +19,8 @@ Found by a follow-up audit of the same code path, and fixed here too:
 - Particle anchoring has its own `particle_exit_distance_blocks` (`4.0`) instead of borrowing `exit_distance_blocks`. Turning the latter down for a crisp jump-off used to switch particle anchoring off silently.
 - Standing still on a pitching or rolling deck no longer produces a slow sideways push (gravity's own velocity was bleeding into the horizontal rotation).
 - Fixed a one-tick velocity snap after editing the config while stood on a spinning contraption, a stale carry surviving a death/respawn on a contraption, `carry_timeout_ticks` lasting one tick longer than set, and stale carry state left behind when an entity was blacklisted mid-carry.
+- New `debug_logging` server option (`false`): logs carried entities' positions in the contraption's own reference frame, so drag can be told apart from client-side rendering lag. Off by default and noisy when on.
+- Built against Sable 2.0.5. The APIs this mod uses are unchanged from 2.0.3, so either works.
 - The Sable and NeoForge dependency ranges are now bounded (`2.0.x`, `21.1.x`). The mod rides on Sable internals, so a future Sable release will now refuse to load cleanly instead of failing mid-tick.
 
 ## 1.2.1 — 2026-07-10
