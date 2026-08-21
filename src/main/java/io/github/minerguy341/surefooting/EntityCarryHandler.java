@@ -4,6 +4,8 @@ import dev.ryanhcode.sable.Sable;
 import dev.ryanhcode.sable.companion.math.BoundingBox3dc;
 import dev.ryanhcode.sable.mixinterface.entity.entity_sublevel_collision.EntityMovementExtension;
 import dev.ryanhcode.sable.sublevel.SubLevel;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.LivingEntity;
@@ -16,9 +18,9 @@ import net.neoforged.neoforge.event.entity.EntityJoinLevelEvent;
 import net.neoforged.neoforge.event.level.LevelEvent;
 import net.neoforged.neoforge.event.tick.EntityTickEvent;
 
-import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.WeakHashMap;
 
 /**
@@ -30,10 +32,10 @@ import java.util.WeakHashMap;
  * players did before this mod. Items even spawn with a random upward pop, so on a fast deck they
  * often never establish tracking in the first place.
  * <p>
- * This handler seeds tracking for entities that spawn over a sub-level, keeps entities tracked
- * through airborne arcs (so Sable's warp carries them), and rotates their velocity with the
- * sub-level's frame. Players are handled client-side; projectiles are excluded because Sable
- * already applies launch velocity and frame-locking would bend their trajectories.
+ * This handler engages tracking for items dropped over a sub-level, keeps entities tracked through
+ * airborne arcs (so Sable's warp carries them), and rotates their velocity with the sub-level's
+ * frame. Players are handled client-side; projectiles are excluded because Sable already applies
+ * launch velocity and frame-locking would bend their trajectories.
  */
 public final class EntityCarryHandler {
 
@@ -44,59 +46,34 @@ public final class EntityCarryHandler {
         final FrameRotation.Anchor orientationAnchor = new FrameRotation.Anchor();
     }
 
-    /**
-     * Highest spawn seed we will hand an entity, in blocks/tick. Sable's substep collision is
-     * already unreliable past ~1 block/tick, and a swept bounding box grows with the cube of the
-     * motion: an entity carrying a hundred blocks/tick of velocity makes
-     * {@code SubLevelEntityCollision} walk millions of block positions in a single tick, or skip
-     * collision entirely ("Enormous local sub-level collision bounds"). Above this we drop the
-     * seed rather than risk the tick — the item is left behind, which is wrong but survivable.
-     */
-    private static final double MAX_SEED_SPEED = 4.0;
-
-    /**
-     * Absolute ceiling, in blocks/tick, on any point velocity we will write to an entity — in
-     * either direction. {@link #MAX_SEED_SPEED} is a policy about how much velocity we are willing
-     * to <em>hand</em> an entity and so belongs to the seeding site only; the handoff below has to
-     * subtract the real deck speed however fast the deck is, or it leaves the double-count it
-     * exists to remove. But "however fast" still needs a sane bound: a solver spike that produces a
-     * finite-but-absurd velocity would otherwise reach {@code deltaMovement} through the subtract
-     * path and stall the tick inside collision — the same cliff {@code MAX_SEED_SPEED} guards on
-     * the add path. Ten times the seed cap is far above any real contraption.
-     */
-    private static final double MAX_SANE_SPEED = MAX_SEED_SPEED * 10.0;
+    /** Fallback exit distance for the window before the server config has loaded. */
+    private static final double DEFAULT_EXIT_DISTANCE = 4.0;
 
     private final Map<Entity, CarryState> states = new WeakHashMap<>();
 
-    /**
-     * Items handed a spawn seed that have not yet been picked up by Sable's frame tracking.
-     * The seed is world-space, so it has to be taken back off at the handoff — see
-     * {@link #onEntityTick}.
-     */
-    private final Set<Entity> seeded = Collections.newSetFromMap(new WeakHashMap<>());
+    /** Items dropped over a contraption, awaiting first-tick tracking (see {@link #onEntityJoin}). */
+    private final Map<Entity, SubLevel> pendingItemTrack = new WeakHashMap<>();
 
     @SubscribeEvent
     public void onEntityJoin(final EntityJoinLevelEvent event) {
         final Entity entity = event.getEntity();
 
-        // loadedFromDisk: only genuinely spawning items get a seed. A chunk load re-fires this
+        // loadedFromDisk: only genuinely spawning items are candidates. A chunk load re-fires this
         // event for every item already lying in it, and ItemEntity persists its thrower UUID
         // (re-resolved lazily by getOwner), so a disk-loaded stack whose thrower happens to be
-        // riding a contraption would otherwise be seeded where it lies — see pointVelocity's note
-        // on why a bogus radius is dangerous.
+        // riding a contraption would otherwise be pinned to a deck it was never on.
         if (event.getLevel().isClientSide || event.loadedFromDisk() || !this.isConfigOn()
                 || !(entity instanceof final ItemEntity item) || !this.isEligible(entity)) {
             return;
         }
 
         // Items dropped by someone riding a contraption spawn with the dropper's throw velocity but
-        // none of the contraption's motion, so a fast deck races out from under them. Seed them with
-        // the sub-level's point velocity — NOT with tracking: tracking an airborne item at spawn
-        // flips Sable's networking/interpolation into the relative frame, which misplaces the item
-        // client-side. With plain velocity the item flies in the contraption's frame and stays
-        // globally networked until Sable picks it up, which happens as soon as deck blocks are near
-        // its bounds — often on the first tick, not on touchdown. onEntityTick takes the seed back
-        // off at that handoff, so it is carry while the item is loose and nothing once it is tracked.
+        // none of the contraption's motion. A velocity seed cannot hold an item on a spinning deck —
+        // it flies straight (tangent) while the deck curves away, so it always lags behind the
+        // rotation. Instead, track the item so Sable's warp carries it around the curve, like the
+        // player. Tracking must NOT be set here at spawn (that flips the item's add-packet into the
+        // relative frame and misplaces it client-side); we record it and engage tracking on its
+        // first tick, once the global spawn packet has gone out.
         final Entity owner = item.getOwner();
         if (owner == null) {
             return;
@@ -107,66 +84,45 @@ public final class EntityCarryHandler {
             return;
         }
 
-        // The owner riding a contraption does not make THIS item's position meaningful on it. The
-        // point velocity is angularVelocity x r, with r taken from the item's own position, so an
-        // item far from the deck gets a radius that is really just its distance from the deck.
-        // Only seed items that are actually on (or just above) the contraption.
-        if (!withinBounds(item, ownerSubLevel)) {
+        // The owner riding a contraption does not make THIS item's position meaningful on it. An
+        // item that is not actually on the deck must not be pinned to it: tracking warps position
+        // by the sub-level's pose delta, so a distant item would be dragged bodily through the
+        // world every tick.
+        if (!this.withinBounds(item, ownerSubLevel)) {
             return;
         }
 
-        final Vec3 pointVelocity = pointVelocity(ownerSubLevel, item);
-        if (pointVelocity == null || pointVelocity.lengthSqr() > MAX_SEED_SPEED * MAX_SEED_SPEED) {
+        this.pendingItemTrack.put(item, ownerSubLevel);
+    }
+
+    @SubscribeEvent
+    public void onEntityTickPre(final EntityTickEvent.Pre event) {
+        final Entity entity = event.getEntity();
+
+        if (entity.level().isClientSide || !this.isConfigOn() || !this.isEligible(entity)) {
             return;
         }
 
-        item.setDeltaMovement(item.getDeltaMovement().add(pointVelocity));
-        this.seeded.add(item);
-    }
-
-    /**
-     * The sub-level's velocity at an entity's position, in blocks/tick, or null if the physics
-     * state is degenerate. The {@link #MAX_SEED_SPEED} cap is deliberately <em>not</em> applied
-     * here: it is a policy about how much velocity we are willing to hand an entity, so it belongs
-     * to the seeding call site. The handoff below subtracts velocity to cancel the tracking warp's
-     * double-count, and capping that would leave the double-count in place.
-     * <p>
-     * {@code Sable.HELPER.getVelocity} takes a <em>sub-level-local</em> position: it returns
-     * {@code angularVelocity × r + linearVelocity}, deriving {@code r} from the argument. Handing
-     * it a world position makes {@code r} the distance to the world origin instead of the radius
-     * on the deck, inflating the tangential term by orders of magnitude — the cause of issue #1,
-     * where items dropped on a levitating (never quite still, so never quite zero angular
-     * velocity) contraption were launched through the deck and stalled the server thread for
-     * tens of seconds inside collision. Every other sub-level-space call in this mod converts
-     * with {@code transformPositionInverse} first; so does this one.
-     */
-    private static Vec3 pointVelocity(final SubLevel subLevel, final Entity entity) {
-        // getVelocity casts the level to ServerLevel and reads the sub-level's physics body
-        // without checking it is still live, so establish that here rather than relying on the
-        // caller — every other sub-level use in this class makes the same two checks.
-        if (subLevel.isRemoved() || subLevel.getLevel() != entity.level()) {
-            return null;
+        // Engage deferred tracking for freshly dropped items (see onEntityJoin) BEFORE their first
+        // movement tick. By now the spawn packet has gone out in world coordinates (so networking
+        // isn't disturbed), and pinning the item to the sub-level here — while it still sits at the
+        // exact drop point — captures the correct local position. Engaging in Post instead would
+        // let the item drift one world-frame tick first, offsetting the landing by a full tick of
+        // platform rotation (invisible at low RPM, blocks of error at extreme speeds).
+        final SubLevel pending = this.pendingItemTrack.remove(entity);
+        if (pending == null || pending.isRemoved() || pending.getLevel() != entity.level()
+                || !this.withinBounds(entity, pending)) {
+            return;
         }
 
-        final Vec3 local = subLevel.logicalPose().transformPositionInverse(entity.position());
-        final Vec3 velocity = Sable.HELPER.getVelocity(entity.level(), subLevel, local).scale(1.0 / 20.0);
-
-        if (!Double.isFinite(velocity.x) || !Double.isFinite(velocity.y) || !Double.isFinite(velocity.z)) {
-            return null; // a physics blow-up must never reach an entity's delta movement
+        final EntityMovementExtension extension = (EntityMovementExtension) entity;
+        if (extension.sable$getTrackingSubLevel() == null && this.states.get(entity) == null) {
+            final CarryState state = new CarryState();
+            state.carrying = pending;
+            state.carryTicks = 1; // this tick is the first carried one
+            this.states.put(entity, state);
+            extension.sable$setTrackingSubLevel(pending);
         }
-
-        return velocity.lengthSqr() > MAX_SANE_SPEED * MAX_SANE_SPEED ? null : velocity;
-    }
-
-    /** Whether the entity is inside the sub-level's world-space bounds, plus the exit margin. */
-    private static boolean withinBounds(final Entity entity, final SubLevel subLevel) {
-        final BoundingBox3dc bounds = subLevel.boundingBox();
-        final double margin = SureFootingServerConfig.EXIT_DISTANCE.get();
-        final Vec3 pos = entity.position();
-
-        return pos.x >= bounds.minX() - margin && pos.x <= bounds.maxX() + margin
-                && pos.y >= bounds.minY() - margin && pos.y <= bounds.maxY() + margin
-                && pos.z >= bounds.minZ() - margin && pos.z <= bounds.maxZ() + margin;
     }
 
     @SubscribeEvent
@@ -182,7 +138,7 @@ public final class EntityCarryHandler {
         // there with its carrying/carryTicks frozen and resume from it if eligibility came back.
         if (!this.isEligible(entity)) {
             this.states.remove(entity);
-            this.seeded.remove(entity);
+            this.pendingItemTrack.remove(entity);
             return;
         }
 
@@ -191,7 +147,7 @@ public final class EntityCarryHandler {
 
         if (!this.isConfigOn()) {
             this.states.remove(entity);
-            this.seeded.remove(entity);
+            this.pendingItemTrack.remove(entity);
             return;
         }
 
@@ -200,31 +156,20 @@ public final class EntityCarryHandler {
             return; // fast path: entity has nothing to do with sub-levels
         }
 
-        // Sable has taken a seeded item into its frame: from here the tracking warp carries the
-        // item with the deck, so the world-space spawn seed is no longer carry — it is drift
-        // relative to the deck, and would slide the item off (an item's ground drag bleeds it off
-        // over ~2.4x its own length in blocks). Re-express the item in the sub-level's frame by
-        // taking the seed back off at the handoff.
-        if (current != null && this.seeded.contains(entity)) {
-            final Vec3 pointVelocity = pointVelocity(current, entity);
-
-            // Only forget the seed once it has actually come back off. Consuming the record on a
-            // failed conversion would leave the item double-counting the deck's motion for the
-            // rest of its life — the exact drift this handoff exists to remove — with no second
-            // chance. A degenerate physics tick is transient, so retry on the next one.
-            if (pointVelocity != null) {
-                entity.setDeltaMovement(entity.getDeltaMovement().subtract(pointVelocity));
-                this.seeded.remove(entity);
-            }
-        }
-
         if (state == null) {
             state = new CarryState();
             this.states.put(entity, state);
         }
 
+        final boolean isItem = entity instanceof ItemEntity;
+
         if (state.carrying != null) {
-            if (current != null) {
+            // Non-living entities (items, XP) are not held by Sable's own tracking on a rotating
+            // deck — handing off (as we do for mobs, which Sable keeps) leaves them world-fixed
+            // while the platform turns under them, so they visibly drag against the spin. Keep
+            // re-asserting tracking every tick for items, on the ground included, until they leave
+            // the sub-level's bounds; only mobs hand back to Sable once they land.
+            if (!isItem && current != null) {
                 state.carrying = null; // Sable re-established tracking itself (landed)
             } else if (this.shouldStopCarry(entity, state)) {
                 state.carrying = null;
@@ -247,8 +192,7 @@ public final class EntityCarryHandler {
                     : SureFootingServerConfig.ENTITY_JUMP_ROTATION_STRENGTH.get();
             // Item yaw is meaningless (their visual spin is a client render animation); everything
             // else turns with the frame so it keeps facing the same way relative to the deck.
-            final boolean rotateYaw = !(entity instanceof ItemEntity)
-                    && SureFootingServerConfig.ROTATE_ENTITY_YAW.get();
+            final boolean rotateYaw = !isItem && SureFootingServerConfig.ROTATE_ENTITY_YAW.get();
             FrameRotation.rotateWithFrame(state.orientationAnchor, entity, current, strength, grounded, rotateYaw);
         } else {
             state.orientationAnchor.reset();
@@ -267,15 +211,16 @@ public final class EntityCarryHandler {
      * {@link CarryState} holds {@link SubLevel}s, and a {@code SubLevel} holds its {@code Level},
      * which holds every entity in it — including the very entity used as the weak key here. That
      * cycle makes the key strongly reachable, so {@link WeakHashMap} can never expunge the entry
-     * and the whole unloaded level is retained. Clearing on unload breaks it. Clearing everything
-     * rather than filtering by level is deliberate: the state is per-tick and rebuilds itself
-     * immediately for any entity still being carried in a level that is staying.
+     * and the whole unloaded level is retained. {@link #pendingItemTrack} holds a {@code SubLevel}
+     * directly and has the same problem. Clearing on unload breaks both. Clearing everything rather
+     * than filtering by level is deliberate: the state is per-tick and rebuilds itself immediately
+     * for any entity still being carried in a level that is staying.
      */
     @SubscribeEvent
     public void onLevelUnload(final LevelEvent.Unload event) {
         if (!event.getLevel().isClientSide()) {
             this.states.clear();
-            this.seeded.clear();
+            this.pendingItemTrack.clear();
         }
     }
 
@@ -302,9 +247,17 @@ public final class EntityCarryHandler {
     }
 
     private boolean shouldStopCarry(final Entity entity, final CarryState state) {
-        return entity.onGround()
-                || state.carryTicks >= SureFootingServerConfig.CARRY_TIMEOUT_TICKS.get()
-                || !this.canCarry(entity, state.carrying);
+        if (!this.canCarry(entity, state.carrying)) {
+            return true; // left the deck's bounds, entered water/lava, or the sub-level is gone
+        }
+
+        // Items ride the deck indefinitely while within bounds (they rest on it and must keep
+        // rotating with it); mobs hand back to Sable on landing and time out of the airborne carry.
+        if (entity instanceof ItemEntity) {
+            return false;
+        }
+
+        return entity.onGround() || state.carryTicks >= SureFootingServerConfig.CARRY_TIMEOUT_TICKS.get();
     }
 
     private boolean canCarry(final Entity entity, final SubLevel subLevel) {
@@ -317,6 +270,65 @@ public final class EntityCarryHandler {
             return false;
         }
 
-        return withinBounds(entity, subLevel);
+        return this.withinBounds(entity, subLevel);
+    }
+
+    /** Whether the entity is inside the sub-level's world-space bounds, plus its exit margin. */
+    private boolean withinBounds(final Entity entity, final SubLevel subLevel) {
+        final BoundingBox3dc bounds = subLevel.boundingBox();
+        final double margin = this.exitDistanceFor(entity.getType());
+        final Vec3 pos = entity.position();
+
+        return pos.x >= bounds.minX() - margin && pos.x <= bounds.maxX() + margin
+                && pos.y >= bounds.minY() - margin && pos.y <= bounds.maxY() + margin
+                && pos.z >= bounds.minZ() - margin && pos.z <= bounds.maxZ() + margin;
+    }
+
+    /** Cache of parsed per-type exit distances, rebuilt when the config list reference changes. */
+    private List<? extends String> cachedOverrideList;
+    private Map<EntityType<?>, Double> exitDistanceOverrides = Map.of();
+
+    private double exitDistanceFor(final EntityType<?> type) {
+        if (!SureFootingServerConfig.SPEC.isLoaded()) {
+            return DEFAULT_EXIT_DISTANCE;
+        }
+
+        final List<? extends String> list = SureFootingServerConfig.EXIT_DISTANCE_OVERRIDES.get();
+        if (list != this.cachedOverrideList) {
+            this.cachedOverrideList = list;
+            this.exitDistanceOverrides = parseOverrides(list);
+        }
+
+        final Double override = this.exitDistanceOverrides.get(type);
+        return override != null ? override : SureFootingServerConfig.EXIT_DISTANCE.get();
+    }
+
+    private static Map<EntityType<?>, Double> parseOverrides(final List<? extends String> list) {
+        final Map<EntityType<?>, Double> map = new HashMap<>();
+
+        for (final String entry : list) {
+            final int eq = entry.lastIndexOf('=');
+            if (eq <= 0) {
+                continue;
+            }
+
+            final ResourceLocation id = ResourceLocation.tryParse(entry.substring(0, eq).trim());
+            if (id == null) {
+                continue;
+            }
+
+            final EntityType<?> type = BuiltInRegistries.ENTITY_TYPE.getOptional(id).orElse(null);
+            if (type == null) {
+                continue;
+            }
+
+            try {
+                map.put(type, Double.parseDouble(entry.substring(eq + 1).trim()));
+            } catch (final NumberFormatException ignored) {
+                // validated at config load; skip defensively
+            }
+        }
+
+        return map;
     }
 }

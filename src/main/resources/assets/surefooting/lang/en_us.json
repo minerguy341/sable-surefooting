@@ -13,5 +13,6 @@
   "surefooting.configuration.entity_jump_rotation_strength": "Entity Jump Rotation Strength",
   "surefooting.configuration.entity_ground_rotation_strength": "Entity Ground Rotation Strength",
   "surefooting.configuration.rotate_entity_yaw": "Rotate Entity Yaw",
+  "surefooting.configuration.exit_distance_overrides": "Exit Distance Overrides (per type)",
   "surefooting.configuration.carry_blacklist": "Carry Blacklist"
 }
