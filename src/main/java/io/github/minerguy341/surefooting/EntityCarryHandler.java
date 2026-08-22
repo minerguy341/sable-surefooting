@@ -6,6 +6,7 @@ import dev.ryanhcode.sable.mixinterface.entity.entity_sublevel_collision.EntityM
 import dev.ryanhcode.sable.sublevel.SubLevel;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.LivingEntity;
@@ -17,6 +18,8 @@ import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.neoforge.event.entity.EntityJoinLevelEvent;
 import net.neoforged.neoforge.event.level.LevelEvent;
 import net.neoforged.neoforge.event.tick.EntityTickEvent;
+import org.joml.Quaterniond;
+import org.joml.Vector3d;
 
 import java.util.HashMap;
 import java.util.List;
@@ -120,6 +123,43 @@ public final class EntityCarryHandler {
         }
 
         this.pendingItemTrack.put(item, ownerSubLevel);
+
+        if (SureFootingServerConfig.DEBUG_ENTITY_LOGGING.get()) {
+            logDropAim(item, owner, ownerSubLevel);
+        }
+    }
+
+    /**
+     * Reports, at the instant of a drop, where the dropper was facing and where the item was
+     * actually thrown — both in world space and in the sub-level's frame.
+     * <p>
+     * Telemetry so far can show that the throw is perfectly consistent in the deck's frame while
+     * sweeping the whole circle in world space, which establishes that the dropper's yaw is
+     * deck-locked and the aim is stable. What it cannot show is whether that stable direction is
+     * the one the dropper was looking along, because the dropper's facing was never recorded. The
+     * last column here is the whole question: {@code offset} is throw heading minus facing heading
+     * in the deck's frame, so 0 means the item leaves along the line of sight and anything else is
+     * the error, read directly rather than inferred from where piles land.
+     */
+    private static void logDropAim(final ItemEntity item, final Entity owner, final SubLevel subLevel) {
+        final Quaterniond inverse = new Quaterniond(subLevel.logicalPose().orientation()).invert();
+
+        final Vec3 throwWorld = item.getDeltaMovement();
+        final Vector3d throwLocal = inverse.transform(new Vector3d(throwWorld.x, throwWorld.y, throwWorld.z));
+
+        // Minecraft yaw is clockwise from +Z, so the facing direction is (-sin, cos).
+        final double yaw = Math.toRadians(owner.getYRot());
+        final Vector3d faceLocal = inverse.transform(new Vector3d(-Math.sin(yaw), 0.0, Math.cos(yaw)));
+
+        final double throwHeading = Math.toDegrees(Math.atan2(throwLocal.z, throwLocal.x));
+        final double faceHeading = Math.toDegrees(Math.atan2(faceLocal.z, faceLocal.x));
+        final double offset = Mth.wrapDegrees(throwHeading - faceHeading);
+
+        SureFooting.LOGGER.info(String.format(
+                "[drop] id=%d yaw=%.1f throwWorld=%.1f throwLocal=%.1f faceLocal=%.1f offset=%.1f",
+                item.getId(), owner.getYRot(),
+                Math.toDegrees(Math.atan2(throwWorld.z, throwWorld.x)),
+                throwHeading, faceHeading, offset));
     }
 
     @SubscribeEvent
@@ -265,9 +305,9 @@ public final class EntityCarryHandler {
         final Vec3 movement = entity.getDeltaMovement();
 
         SureFooting.LOGGER.info(String.format(
-                "[carry] %s t=%d tracked=%b carrying=%b onGround=%b local=(%.3f, %.3f, %.3f) "
+                "[carry] %s id=%d t=%d tracked=%b carrying=%b onGround=%b local=(%.3f, %.3f, %.3f) "
                         + "drift=(%.4f, %.4f, %.4f) |horiz|=%.4f dm=(%.4f, %.4f, %.4f)",
-                EntityType.getKey(entity.getType()), entity.tickCount,
+                EntityType.getKey(entity.getType()), entity.getId(), entity.tickCount,
                 current != null, state.carrying != null, entity.onGround(),
                 local.x, local.y, local.z,
                 drift.x, drift.y, drift.z, drift.horizontalDistance(),
