@@ -122,11 +122,53 @@ public final class EntityCarryHandler {
             return;
         }
 
+        final double lead = leadThrow(item, ownerSubLevel);
         this.pendingItemTrack.put(item, ownerSubLevel);
 
         if (SureFootingServerConfig.DEBUG_ENTITY_LOGGING.get()) {
-            logDropAim(item, owner, ownerSubLevel);
+            logDropAim(item, owner, ownerSubLevel, lead);
         }
+    }
+
+    /**
+     * Turns a dropped item's throw ahead of the contraption's rotation, to cancel the lag between
+     * what the dropper sees and where the server has them pointing.
+     * <p>
+     * The throw already leaves exactly along the dropper's server-side facing — measured at 0.0
+     * degrees mean over 156 drops, within vanilla's own 3.8 degree randomisation — and the item
+     * then flies a straight line in the contraption's frame. Neither is where the miss comes from.
+     * It comes from the dropper aiming with a view rendered from a delayed snapshot, so the
+     * crosshair trails the deck; the landing error is that delay times the spin rate, which is why
+     * it measured 45 degrees at 30 RPM, 90 at 60 and near nothing when the deck was nearly still.
+     * <p>
+     * The server cannot observe that delay: a steadily lagged facing and a deliberately chosen one
+     * produce identical yaw readings, and in steady state they differ by no rate either. So this is
+     * a tuned constant, off by default, and right only for the player it was tuned for. Rotating
+     * the launch direction is preferred over displacing the item because it keeps the throw looking
+     * like a throw — the same landing point reached by an arc rather than a jump.
+     *
+     * @return the lead actually applied, in ticks, for telemetry
+     */
+    private static double leadThrow(final ItemEntity item, final SubLevel subLevel) {
+        final double lead = SureFootingServerConfig.ITEM_THROW_LEAD_TICKS.get();
+        final Vec3 movement = item.getDeltaMovement();
+
+        if (lead <= 0.0 || movement.lengthSqr() == 0.0) {
+            return 0.0;
+        }
+
+        final Quaterniond ahead = FrameRotation.frameDeltaOver(subLevel, lead);
+        if (ahead == null) {
+            return 0.0; // deck is not turning, so there is no lag to cancel
+        }
+
+        final Vector3d led = ahead.transform(new Vector3d(movement.x, movement.y, movement.z));
+        if (!led.isFinite()) {
+            return 0.0;
+        }
+
+        item.setDeltaMovement(led.x, led.y, led.z);
+        return lead;
     }
 
     /**
@@ -141,7 +183,8 @@ public final class EntityCarryHandler {
      * in the deck's frame, so 0 means the item leaves along the line of sight and anything else is
      * the error, read directly rather than inferred from where piles land.
      */
-    private static void logDropAim(final ItemEntity item, final Entity owner, final SubLevel subLevel) {
+    private static void logDropAim(final ItemEntity item, final Entity owner, final SubLevel subLevel,
+                                   final double leadApplied) {
         final Quaterniond inverse = new Quaterniond(subLevel.logicalPose().orientation()).invert();
 
         final Vec3 throwWorld = item.getDeltaMovement();
@@ -156,10 +199,10 @@ public final class EntityCarryHandler {
         final double offset = Mth.wrapDegrees(throwHeading - faceHeading);
 
         SureFooting.LOGGER.info(String.format(
-                "[drop] id=%d yaw=%.1f throwWorld=%.1f throwLocal=%.1f faceLocal=%.1f offset=%.1f",
+                "[drop] id=%d yaw=%.1f throwWorld=%.1f throwLocal=%.1f faceLocal=%.1f offset=%.1f lead=%.1f",
                 item.getId(), owner.getYRot(),
                 Math.toDegrees(Math.atan2(throwWorld.z, throwWorld.x)),
-                throwHeading, faceHeading, offset));
+                throwHeading, faceHeading, offset, leadApplied));
     }
 
     @SubscribeEvent
