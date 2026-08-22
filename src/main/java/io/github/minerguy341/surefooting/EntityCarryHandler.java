@@ -17,7 +17,6 @@ import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.neoforge.event.entity.EntityJoinLevelEvent;
 import net.neoforged.neoforge.event.level.LevelEvent;
 import net.neoforged.neoforge.event.tick.EntityTickEvent;
-import org.joml.Vector3d;
 
 import java.util.HashMap;
 import java.util.List;
@@ -120,42 +119,7 @@ public final class EntityCarryHandler {
             return;
         }
 
-        aimThrowWhereTheDropperIsLooking(item, ownerSubLevel);
         this.pendingItemTrack.put(item, ownerSubLevel);
-    }
-
-    /**
-     * Turns a dropped item's throw velocity into the sub-level's frame, so it goes where the
-     * dropper was actually looking.
-     * <p>
-     * Vanilla {@code Player.drop} builds the throw straight out of {@code getYRot()}/{@code getXRot()}
-     * with {@code Mth.sin}/{@code cos} — it never calls {@code calculateViewVector}. Sable corrects
-     * the player's <em>view</em> through exactly that method ({@code camera_rotation.EntityMixin}
-     * applies the sub-level orientation to the view vector), so on a rotating deck the direction you
-     * see and the direction the item is thrown differ by the sub-level's whole orientation. Measured
-     * on a deck whose orientation was about -133 degrees, the item left at -66 degrees in world space
-     * while the player was looking 133 degrees away from that: it landed behind them. The offset is
-     * the deck's accumulated orientation, so it changes as the deck turns and every drop misses in a
-     * different direction.
-     * <p>
-     * Applying the same orientation to the throw puts the two back in agreement. Note this corrects
-     * the <em>aim</em> only; the item's flight is already frame-correct once it is being carried.
-     */
-    private static void aimThrowWhereTheDropperIsLooking(final ItemEntity item, final SubLevel subLevel) {
-        final Vec3 movement = item.getDeltaMovement();
-
-        if (movement.lengthSqr() == 0.0) {
-            return; // a drop with no throw (death drops, dispensers) has no aim to correct
-        }
-
-        final Vector3d aimed = subLevel.logicalPose().orientation()
-                .transform(new Vector3d(movement.x, movement.y, movement.z));
-
-        if (!aimed.isFinite()) {
-            return;
-        }
-
-        item.setDeltaMovement(aimed.x, aimed.y, aimed.z);
     }
 
     @SubscribeEvent
