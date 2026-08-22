@@ -59,6 +59,23 @@ public final class EntityCarryHandler {
     /** Fallback exit distance for the window before the server config has loaded. */
     private static final double DEFAULT_EXIT_DISTANCE = 4.0;
 
+    /**
+     * Velocity rotation multiplier for dropped items: exactly the frame's rotation, no lead.
+     * <p>
+     * The configurable strengths default above 1.0 because a <em>player's</em> velocity is applied
+     * during the following tick while the frame keeps turning, so aligning it to the frame at a
+     * tick's end still trails slightly and a little lead cancels that. An item does not have that
+     * lag to cancel — tracking warps its position with the deck, so its velocity only has to turn
+     * at the deck's own rate for its path to be straight in the deck's frame.
+     * <p>
+     * Measured on a deck rotating 28.6&deg;/tick: at the shared 1.16 the item's velocity turned
+     * 33.4&deg;/tick, exactly 1.16x, leaving (1.16 - 1) x 28.6 = 4.6&deg;/tick of residual that bent
+     * the item's flight ~32&deg; off course across a single drop. At 1.0 that residual is zero.
+     * Not configurable: it is a consequence of how tracking works, not a taste setting, and the
+     * shared option stays for mobs, which are not position-warped the same way.
+     */
+    private static final double ITEM_ROTATION_STRENGTH = 1.0;
+
     private final Map<Entity, CarryState> states = new WeakHashMap<>();
 
     /** Items dropped over a contraption, awaiting first-tick tracking (see {@link #onEntityJoin}). */
@@ -197,7 +214,9 @@ public final class EntityCarryHandler {
 
         if (current != null) {
             final boolean grounded = entity.onGround();
-            final double strength = grounded
+            final double strength = isItem
+                    ? ITEM_ROTATION_STRENGTH
+                    : grounded
                     ? SureFootingServerConfig.ENTITY_GROUND_ROTATION_STRENGTH.get()
                     : SureFootingServerConfig.ENTITY_JUMP_ROTATION_STRENGTH.get();
             // Item yaw is meaningless (their visual spin is a client render animation); everything
