@@ -49,7 +49,7 @@ public final class EntityCarryHandler {
     }
 
     /**
-     * How long after an entity spawns {@code debug_logging} keeps reporting it. Long enough to cover
+     * How long after an entity spawns {@code debug_entity_logging} keeps reporting it. Long enough to cover
      * a drop, its fall, the landing and a few seconds of settling — which is the window the question
      * "does it drift while airborne?" lives in — and short enough that an item riding a deck
      * indefinitely does not log forever.
@@ -208,7 +208,7 @@ public final class EntityCarryHandler {
             state.orientationAnchor.reset();
         }
 
-        if (SureFootingServerConfig.DEBUG_LOGGING.get() && entity.tickCount <= DEBUG_TICKS) {
+        if (SureFootingServerConfig.DEBUG_ENTITY_LOGGING.get() && entity.tickCount <= DEBUG_TICKS) {
             logCarryTelemetry(entity, state, current);
         }
 
