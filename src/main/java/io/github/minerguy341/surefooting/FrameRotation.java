@@ -39,6 +39,32 @@ final class FrameRotation {
         rotateWithFrame(anchor, entity, subLevel, strength, preserveY, false);
     }
 
+    /**
+     * The sub-level's rotation over one tick, scaled to {@code ticks} ticks — or null when it is
+     * not turning enough to matter.
+     * <p>
+     * Reads the delta straight off Sable's own pose history ({@code logicalPose} against
+     * {@code lastPose}) rather than from a caller-held anchor, so it can be asked at any moment
+     * without having followed the sub-level tick by tick. The near-identity guard is the same one
+     * {@link #rotateWithFrame} relies on: converting an identity quaternion to axis-angle divides
+     * by zero and poisons whatever it is applied to with NaN.
+     */
+    static Quaterniond frameDeltaOver(final SubLevel subLevel, final double ticks) {
+        final Quaterniondc now = subLevel.logicalPose().orientation();
+        final Quaterniond delta = now.mul(new Quaterniond(subLevel.lastPose().orientation()).invert(),
+                new Quaterniond()).normalize();
+
+        if (Math.abs(delta.w) >= 1.0 - 1.0e-10) {
+            return null; // not rotating this tick
+        }
+
+        final AxisAngle4d axisAngle = new AxisAngle4d().set(delta);
+        axisAngle.angle *= ticks;
+
+        final Quaterniond scaled = new Quaterniond(axisAngle);
+        return Double.isFinite(scaled.w) ? scaled : null;
+    }
+
     static void rotateWithFrame(final Anchor anchor, final Entity entity, final SubLevel subLevel,
                                 final double strength, final boolean preserveY, final boolean rotateYaw) {
         final Quaterniondc orientation = subLevel.logicalPose().orientation();

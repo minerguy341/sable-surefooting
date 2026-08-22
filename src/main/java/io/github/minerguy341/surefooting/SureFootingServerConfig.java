@@ -20,6 +20,7 @@ public final class SureFootingServerConfig {
     public static final ModConfigSpec.DoubleValue EXIT_DISTANCE;
     public static final ModConfigSpec.ConfigValue<List<? extends String>> EXIT_DISTANCE_OVERRIDES;
     public static final ModConfigSpec.ConfigValue<List<? extends String>> CARRY_BLACKLIST;
+    public static final ModConfigSpec.DoubleValue ITEM_THROW_LEAD_TICKS;
     public static final ModConfigSpec.BooleanValue DEBUG_ENTITY_LOGGING;
 
     static {
@@ -67,6 +68,20 @@ public final class SureFootingServerConfig {
         CARRY_BLACKLIST = builder
                 .comment("Entity type ids that should never be carried, e.g. [\"minecraft:boat\", \"examplemod:drone\"].")
                 .defineListAllowEmpty("carry_blacklist", List.of(), () -> "", o -> o instanceof String);
+        ITEM_THROW_LEAD_TICKS = builder
+                .comment("Aim a dropped item this many ticks ahead of the contraption's rotation, to cancel " +
+                        "the lag between what you see and where the server has you pointing. 0 disables it.\n" +
+                        "You are aiming with a view rendered from a delayed snapshot (Sable's own " +
+                        "sub_level_snapshot_interpolation_delay_ticks, plus whatever your client and connection " +
+                        "add), so on a turning deck your crosshair is a few ticks behind the contraption. The " +
+                        "item itself leaves exactly along where the server has you facing and flies straight in " +
+                        "the contraption's frame — both measured — so the miss is the stale view, and it grows " +
+                        "with spin rate: about 9 degrees per tick of lag at 30 RPM, 18 at 60.\n" +
+                        "This is a tuned number, not a derived one. The server cannot see your render delay, so " +
+                        "set it to whatever makes drops land where you aim: raise it until they stop falling " +
+                        "behind you, lower it if they start landing ahead. On a shared server one value cannot " +
+                        "suit everyone, since each player's delay differs.")
+                .defineInRange("item_throw_lead_ticks", 0.0, 0.0, 20.0);
         DEBUG_ENTITY_LOGGING = builder
                 .comment("Log carried entities' positions in the contraption's own reference frame, for " +
                         "diagnosing drag. A local position that holds steady means the entity is glued to " +

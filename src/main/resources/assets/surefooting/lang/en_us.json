@@ -15,5 +15,6 @@
   "surefooting.configuration.rotate_entity_yaw": "Rotate Entity Yaw",
   "surefooting.configuration.exit_distance_overrides": "Exit Distance Overrides (per type)",
   "surefooting.configuration.carry_blacklist": "Carry Blacklist",
+  "surefooting.configuration.item_throw_lead_ticks": "Item Throw Lead (Ticks)",
   "surefooting.configuration.debug_entity_logging": "Debug Entity Logging"
 }
