@@ -199,10 +199,13 @@ public final class EntityCarryHandler {
         final double offset = Mth.wrapDegrees(throwHeading - faceHeading);
 
         SureFooting.LOGGER.info(String.format(
-                "[drop] id=%d yaw=%.1f throwWorld=%.1f throwLocal=%.1f faceLocal=%.1f offset=%.1f lead=%.1f",
+                "[drop] id=%d yaw=%.1f throwWorld=%.1f throwLocal=%.1f faceLocal=%.1f offset=%.1f "
+                        + "lead=%.1f deltaDeg=%.3f leadDeg=%.1f",
                 item.getId(), owner.getYRot(),
                 Math.toDegrees(Math.atan2(throwWorld.z, throwWorld.x)),
-                throwHeading, faceHeading, offset, leadApplied));
+                throwHeading, faceHeading, offset, leadApplied,
+                FrameRotation.frameDeltaDegrees(subLevel),
+                FrameRotation.frameDeltaDegrees(subLevel) * leadApplied));
     }
 
     @SubscribeEvent

@@ -65,6 +65,21 @@ final class FrameRotation {
         return Double.isFinite(scaled.w) ? scaled : null;
     }
 
+    /**
+     * The rotation, in degrees, that {@link #frameDeltaOver} treats as one tick's worth — i.e. the
+     * angle between the sub-level's {@code lastPose} and its {@code logicalPose}.
+     * <p>
+     * Purely for calibration. A lead of 12.7 was needed in game where the measured lag was about 5
+     * real ticks, which puts this step at roughly 0.39 of a tick of actual rotation rather than a
+     * whole one — so the option's value is not in real ticks. Comparing this figure against the
+     * contraption's known rate (a deck at 96 RPM turns 28.8&deg; per game tick) gives the factor
+     * exactly, and NaN means the frame was not turning.
+     */
+    static double frameDeltaDegrees(final SubLevel subLevel) {
+        final Quaterniond delta = frameDeltaOver(subLevel, 1.0);
+        return delta == null ? Double.NaN : Math.toDegrees(new AxisAngle4d().set(delta).angle);
+    }
+
     static void rotateWithFrame(final Anchor anchor, final Entity entity, final SubLevel subLevel,
                                 final double strength, final boolean preserveY, final boolean rotateYaw) {
         final Quaterniondc orientation = subLevel.logicalPose().orientation();
