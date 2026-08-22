@@ -71,16 +71,22 @@ public final class SureFootingServerConfig {
         ITEM_THROW_LEAD_TICKS = builder
                 .comment("Aim a dropped item this many ticks ahead of the contraption's rotation, to cancel " +
                         "the lag between what you see and where the server has you pointing. 0 disables it.\n" +
-                        "You are aiming with a view rendered from a delayed snapshot (Sable's own " +
+                        "You aim using a view rendered from a delayed snapshot (Sable's own " +
                         "sub_level_snapshot_interpolation_delay_ticks, plus whatever your client and connection " +
-                        "add), so on a turning deck your crosshair is a few ticks behind the contraption. The " +
-                        "item itself leaves exactly along where the server has you facing and flies straight in " +
-                        "the contraption's frame — both measured — so the miss is the stale view, and it grows " +
-                        "with spin rate: about 9 degrees per tick of lag at 30 RPM, 18 at 60.\n" +
-                        "This is a tuned number, not a derived one. The server cannot see your render delay, so " +
-                        "set it to whatever makes drops land where you aim: raise it until they stop falling " +
-                        "behind you, lower it if they start landing ahead. On a shared server one value cannot " +
-                        "suit everyone, since each player's delay differs.")
+                        "add), so on a turning deck your crosshair trails the contraption. The item itself " +
+                        "leaves exactly along where the server has you facing and then flies straight in the " +
+                        "contraption's frame -- both measured -- so the miss is the stale view, and it grows " +
+                        "with spin rate: a deck at 96 RPM turns 28.8 degrees per tick, so each tick of lag is " +
+                        "28.8 degrees of miss.\n" +
+                        "The correction applied is this value times the deck's rotation per tick, so ONE value " +
+                        "works at every speed -- the per-tick rotation already scales with RPM. Tune it by " +
+                        "raising it until drops stop landing behind you and lowering it if they start landing " +
+                        "ahead. Around 12-13 suited a local singleplayer client.\n" +
+                        "Two things to know. On a fast deck the total can exceed a full turn (12.7 x 28.8 = 366 " +
+                        "degrees at 96 RPM); that still corrects correctly, because the error wraps by the same " +
+                        "amount, but near a multiple of 360 the result is very sensitive to small changes in " +
+                        "this value or in RPM. And it is a tuned number, not a derived one: the server cannot " +
+                        "see a client's render delay, so on a shared server one value cannot suit everyone.")
                 .defineInRange("item_throw_lead_ticks", 0.0, 0.0, 20.0);
         DEBUG_ENTITY_LOGGING = builder
                 .comment("Log carried entities' positions in the contraption's own reference frame, for " +
